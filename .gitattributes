@@ -1,0 +1,10 @@
+.env filter=gitcrypt diff=gitcrypt
+.env.* filter=gitcrypt diff=gitcrypt
+*.pem filter=gitcrypt diff=gitcrypt
+*.key filter=gitcrypt diff=gitcrypt
+*.crt filter=gitcrypt diff=gitcrypt
+*.zip filter=lfs diff=lfs merge=lfs -text
+*.moc3 filter=lfs diff=lfs merge=lfs -text
+*.model3.json filter=lfs diff=lfs merge=lfs -text
+*.physics3.json filter=lfs diff=lfs merge=lfs -text
+*.motion3.json filter=lfs diff=lfs merge=lfs -text
