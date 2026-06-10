@@ -787,7 +787,8 @@ from potato.plugins import call_plugin, list_plugins as _list_plugins
 
 
 @app.get("/api/plugins")
-def plugins_list() -> dict[str, Any]:
+@limiter.limit("30/minute")
+def plugins_list(request: Request, _auth: None = Depends(_verify_api_key)) -> dict[str, Any]:
     plugins = _list_plugins()
     return {
         "ok": True,
@@ -800,7 +801,8 @@ def plugins_list() -> dict[str, Any]:
 
 
 @app.post("/api/plugins/{name}/{action}")
-def plugin_call(name: str, action: str, body: dict[str, Any] = None) -> dict[str, Any]:
+@limiter.limit("15/minute")
+def plugin_call(request: Request, name: str, action: str, body: dict[str, Any] = None, _auth: None = Depends(_verify_api_key)) -> dict[str, Any]:
     import asyncio
     result = call_plugin(name, action, body or {})
     if asyncio.isfuture(result) or asyncio.iscoroutine(result):
@@ -809,7 +811,8 @@ def plugin_call(name: str, action: str, body: dict[str, Any] = None) -> dict[str
 
 
 @app.post("/api/plugin/analyze")
-def plugin_analyze(body: dict[str, Any]) -> dict[str, Any]:
+@limiter.limit("15/minute")
+def plugin_analyze(request: Request, body: dict[str, Any], _auth: None = Depends(_verify_api_key)) -> dict[str, Any]:
     import asyncio
     result = call_plugin("ais", "analyze", body or {})
     if asyncio.isfuture(result) or asyncio.iscoroutine(result):
@@ -818,7 +821,8 @@ def plugin_analyze(body: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.post("/api/plugin/learn")
-def plugin_learn(body: dict[str, Any]) -> dict[str, Any]:
+@limiter.limit("15/minute")
+def plugin_learn(request: Request, body: dict[str, Any], _auth: None = Depends(_verify_api_key)) -> dict[str, Any]:
     import asyncio
     result = call_plugin("ais", "learn", body or {})
     if asyncio.isfuture(result) or asyncio.iscoroutine(result):
@@ -827,7 +831,8 @@ def plugin_learn(body: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.post("/api/plugin/audit")
-def plugin_audit(body: dict[str, Any]) -> dict[str, Any]:
+@limiter.limit("15/minute")
+def plugin_audit(request: Request, body: dict[str, Any], _auth: None = Depends(_verify_api_key)) -> dict[str, Any]:
     import asyncio
     result = call_plugin("deepaudit", "audit_snippet", body or {})
     if asyncio.isfuture(result) or asyncio.iscoroutine(result):
@@ -839,4 +844,5 @@ if __name__ == "__main__":
     import uvicorn
 
     port = int(os.getenv("PORT", "8080"))
-    uvicorn.run("app:app", host="127.0.0.1", port=port)
+    host = os.getenv("HOST", "0.0.0.0")
+    uvicorn.run("app:app", host=host, port=port)
