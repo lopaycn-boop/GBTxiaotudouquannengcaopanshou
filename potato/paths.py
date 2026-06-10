@@ -6,7 +6,8 @@ from pathlib import Path
 logger = logging.getLogger("potato.paths")
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_DEFAULT_DATA_DIR = _PROJECT_ROOT / "data"
+_ENV_DATA_DIR = os.environ.get("POTATO_DATA_DIR", "").strip()
+_DEFAULT_DATA_DIR = Path(_ENV_DATA_DIR) if _ENV_DATA_DIR else _PROJECT_ROOT / "data"
 
 
 def _resolve_data_dir() -> Path:
