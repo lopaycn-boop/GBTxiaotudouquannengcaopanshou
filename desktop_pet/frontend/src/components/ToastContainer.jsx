@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 
 let toastId = 0;
 const TOAST_ICONS = {
@@ -59,6 +59,7 @@ export default function ToastContainer() {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function showToast(message, type = 'info', duration = 3000) {
   window.dispatchEvent(new CustomEvent('potato-toast', { detail: { message, type, duration } }));
 }

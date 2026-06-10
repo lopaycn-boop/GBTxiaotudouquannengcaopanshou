@@ -10,12 +10,10 @@ import copy
 import json
 import logging
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
-from typing import Any
-
-logger = logging.getLogger("potato.browser.platforms")
 
 from potato.paths import DATA_DIR
+
+logger = logging.getLogger("potato.browser.platforms")
 
 
 @dataclass

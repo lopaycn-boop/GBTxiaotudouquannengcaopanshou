@@ -1,0 +1,708 @@
+/* ========================================================================
+   FUTURISTIC / CYBERPUNK THEME — 小土豆全能操盘手 Chat Dialog Overhaul
+   Tron · Cyberpunk 2077 · Blade Runner
+   Import AFTER App.css to override.
+   ======================================================================== */
+
+/* ── Override CSS Custom Properties ──────────────────────────────────── */
+:root {
+  --bg-primary: #050510 !important;
+  --bg-secondary: #0a0a1f !important;
+  --bg-tertiary: #0d0d2b !important;
+  --bg-card: rgba(5, 5, 20, 0.92) !important;
+  --bg-card-hover: rgba(10, 10, 35, 0.95) !important;
+  --bg-input: rgba(0, 10, 30, 0.7) !important;
+  --text-primary: #e0f7ff !important;
+  --text-secondary: rgba(0, 245, 255, 0.6) !important;
+  --text-muted: rgba(0, 200, 255, 0.3) !important;
+  --accent: #00f5ff !important;           /* cyan neon */
+  --accent-secondary: #ff2d95 !important; /* magenta neon */
+  --border: rgba(0, 245, 255, 0.15) !important;
+  --shadow: rgba(0, 245, 255, 0.08) !important;
+  --msg-user: rgba(0, 245, 255, 0.08) !important;
+  --msg-assistant: rgba(255, 45, 149, 0.06) !important;
+  --msg-system: rgba(100, 100, 255, 0.05) !important;
+  --msg-error: rgba(255, 40, 40, 0.18) !important;
+  --msg-success: rgba(0, 255, 180, 0.14) !important;
+  --msg-warning: rgba(255, 200, 0, 0.14) !important;
+  --msg-trade: rgba(0, 180, 255, 0.14) !important;
+
+  /* Futuristic palette extras */
+  --neon-cyan: #00f5ff;
+  --neon-magenta: #ff2d95;
+  --neon-blue: #4d7cff;
+  --neon-purple: #b44dff;
+  --neon-green: #00ff88;
+  --holo-angle: 135deg;
+  --glow-sm: 0 0 6px;
+  --glow-md: 0 0 12px;
+  --glow-lg: 0 0 24px;
+}
+
+/* ── Animated Gradient Border Keyframes ──────────────────────────────── */
+@keyframes borderShift {
+  0%   { border-image-source: linear-gradient(0deg,   var(--neon-cyan), var(--neon-magenta), var(--neon-blue), var(--neon-cyan)); }
+  25%  { border-image-source: linear-gradient(90deg,  var(--neon-cyan), var(--neon-magenta), var(--neon-blue), var(--neon-cyan)); }
+  50%  { border-image-source: linear-gradient(180deg, var(--neon-cyan), var(--neon-magenta), var(--neon-blue), var(--neon-cyan)); }
+  75%  { border-image-source: linear-gradient(270deg, var(--neon-cyan), var(--neon-magenta), var(--neon-blue), var(--neon-cyan)); }
+  100% { border-image-source: linear-gradient(360deg, var(--neon-cyan), var(--neon-magenta), var(--neon-blue), var(--neon-cyan)); }
+}
+
+/* ── Glitch Title Keyframes ─────────────────────────────────────────── */
+@keyframes glitch1 {
+  0%, 90%, 100% { clip-path: inset(0 0 0 0); transform: translate(0); }
+  92%  { clip-path: inset(20% 0 60% 0); transform: translate(-3px, 1px); }
+  94%  { clip-path: inset(50% 0 20% 0); transform: translate(3px, -1px); }
+  96%  { clip-path: inset(10% 0 70% 0); transform: translate(-2px, 2px); }
+  98%  { clip-path: inset(80% 0 5% 0);  transform: translate(2px, -2px); }
+}
+@keyframes glitch2 {
+  0%, 90%, 100% { clip-path: inset(0 0 0 0); transform: translate(0); }
+  91%  { clip-path: inset(60% 0 10% 0); transform: translate(2px, -1px); }
+  93%  { clip-path: inset(30% 0 40% 0); transform: translate(-3px, 1px); }
+  95%  { clip-path: inset(70% 0 10% 0); transform: translate(1px, 2px); }
+  97%  { clip-path: inset(5% 0 80% 0);  transform: translate(-1px, -2px); }
+}
+
+/* ── Pulse / Breathing Dot ──────────────────────────────────────────── */
+@keyframes neonPulse {
+  0%, 100% { box-shadow: 0 0 4px var(--neon-cyan), 0 0 8px var(--neon-cyan), 0 0 16px var(--neon-cyan); opacity: 1; }
+  50%      { box-shadow: 0 0 8px var(--neon-cyan), 0 0 20px var(--neon-cyan), 0 0 40px var(--neon-cyan); opacity: 0.75; }
+}
+
+/* ── Scanline Drift ─────────────────────────────────────────────────── */
+@keyframes scanlineDrift {
+  0%   { background-position: 0 0; }
+  100% { background-position: 0 100vh; }
+}
+
+/* ── Holographic Shimmer on Messages ────────────────────────────────── */
+@keyframes holoShimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* ── Matrix Rain Column (subtle pseudo-element) ─────────────────────── */
+@keyframes matrixFall {
+  0%   { transform: translateY(-100%); opacity: 0; }
+  10%  { opacity: 0.6; }
+  90%  { opacity: 0.6; }
+  100% { transform: translateY(100%); opacity: 0; }
+}
+
+/* ── Neon Blink for Cursor ──────────────────────────────────────────── */
+@keyframes neonBlink {
+  0%, 100% { border-right-color: var(--neon-cyan); }
+  50%      { border-right-color: transparent; }
+}
+
+/* ── Glow Breathe for Quick-Action Buttons ──────────────────────────── */
+@keyframes glowBreathe {
+  0%, 100% { box-shadow: 0 0 4px rgba(0,245,255,0.3), inset 0 0 4px rgba(0,245,255,0.05); }
+  50%      { box-shadow: 0 0 12px rgba(0,245,255,0.5), inset 0 0 8px rgba(0,245,255,0.1); }
+}
+
+/* =====================================================================
+   .chat-card — Main Panel
+   ===================================================================== */
+.chat-card {
+  position: relative !important;
+  background: var(--bg-card) !important;
+  border: 1.5px solid rgba(0, 245, 255, 0.25) !important;
+  border-radius: 12px !important;
+  box-shadow:
+    0 0 15px rgba(0, 245, 255, 0.12),
+    0 0 40px rgba(255, 45, 149, 0.06),
+    inset 0 0 60px rgba(0, 0, 0, 0.5) !important;
+  overflow: hidden !important;
+  z-index: 10 !important;
+}
+
+/* Animated gradient border — outer wrapper technique using outline + pseudo */
+.chat-card::before {
+  content: '' !important;
+  position: absolute !important;
+  inset: -1.5px !important;
+  border-radius: 13px !important;
+  padding: 1.5px !important;
+  background: linear-gradient(
+    var(--holo-angle),
+    var(--neon-cyan),
+    var(--neon-magenta),
+    var(--neon-blue),
+    var(--neon-purple),
+    var(--neon-cyan)
+  ) !important;
+  background-size: 300% 300% !important;
+  animation: borderShift 6s linear infinite !important;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0) !important;
+  -webkit-mask-composite: xor !important;
+  mask-composite: exclude !important;
+  pointer-events: none !important;
+  z-index: -1 !important;
+}
+
+/* ── CRT / Scanline Overlay ─────────────────────────────────────────── */
+.chat-card::after {
+  content: '' !important;
+  position: absolute !important;
+  inset: 0 !important;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 245, 255, 0.015) 2px,
+    rgba(0, 245, 255, 0.015) 4px
+  ) !important;
+  background-size: 100% 4px !important;
+  animation: scanlineDrift 8s linear infinite !important;
+  pointer-events: none !important;
+  z-index: 100 !important;
+  border-radius: 12px !important;
+}
+
+/* ── Matrix-Rain Subtle Background Columns ──────────────────────────── */
+.chat-card .chat-msgs::before {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 58px,
+      rgba(0, 245, 255, 0.012) 58px,
+      rgba(0, 245, 255, 0.012) 60px
+    ) !important;
+  pointer-events: none !important;
+  z-index: 0 !important;
+}
+
+/* =====================================================================
+   .chat-card-head — Header
+   ===================================================================== */
+.chat-card-head {
+  background: rgba(0, 5, 20, 0.85) !important;
+  border-bottom: 1px solid rgba(0, 245, 255, 0.2) !important;
+  backdrop-filter: blur(10px) !important;
+  position: relative !important;
+  z-index: 2 !important;
+}
+
+/* ── Status Dot — Neon Pulse ────────────────────────────────────────── */
+.chat-card-head .head-left .dot {
+  width: 10px !important;
+  height: 10px !important;
+  background: var(--neon-cyan) !important;
+  border-radius: 50% !important;
+  box-shadow:
+    0 0 4px var(--neon-cyan),
+    0 0 8px var(--neon-cyan),
+    0 0 16px var(--neon-cyan) !important;
+  animation: neonPulse 2s ease-in-out infinite !important;
+}
+
+/* Offline / error variant — magenta */
+.chat-card-head .head-left .dot[style*="red"],
+.chat-card-head .head-left .dot[style*="#f44"],
+.chat-card-head .head-left .dot[style*="#ff"] {
+  background: var(--neon-magenta) !important;
+  box-shadow:
+    0 0 4px var(--neon-magenta),
+    0 0 8px var(--neon-magenta),
+    0 0 16px var(--neon-magenta) !important;
+}
+
+/* ── Title — Glitch Effect ──────────────────────────────────────────── */
+.chat-card-head .head-left .title,
+.chat-card-head .head-left .title span {
+  color: var(--neon-cyan) !important;
+  text-shadow:
+    0 0 8px rgba(0, 245, 255, 0.6),
+    0 0 20px rgba(0, 245, 255, 0.3) !important;
+  font-family: 'Courier New', 'Consolas', monospace !important;
+  letter-spacing: 2px !important;
+  position: relative !important;
+  animation: glitch1 4s infinite !important;
+}
+
+/* Secondary glitch pseudo for the title */
+.chat-card-head .head-left .title::after {
+  content: attr(data-text) !important;
+  position: absolute !important;
+  left: 2px !important;
+  top: 0 !important;
+  color: var(--neon-magenta) !important;
+  text-shadow:
+    0 0 6px rgba(255, 45, 149, 0.5),
+    0 0 16px rgba(255, 45, 149, 0.25) !important;
+  animation: glitch2 4s infinite !important;
+  pointer-events: none !important;
+}
+
+/* Fallback: even without data-text, show a faint copy */
+.chat-card-head .head-left .title::before {
+  content: '小土豆全能操盘手' !important;
+  position: absolute !important;
+  left: -1px !important;
+  top: 0 !important;
+  color: var(--neon-blue) !important;
+  text-shadow: 0 0 6px rgba(77, 124, 255, 0.4) !important;
+  opacity: 0.5 !important;
+  animation: glitch2 4s 0.1s infinite !important;
+  pointer-events: none !important;
+}
+
+/* =====================================================================
+   .chat-quick — Quick Action Buttons
+   ===================================================================== */
+.chat-quick button {
+  background: rgba(0, 10, 30, 0.6) !important;
+  border: 1px solid rgba(0, 245, 255, 0.2) !important;
+  color: var(--neon-cyan) !important;
+  text-shadow: 0 0 6px rgba(0, 245, 255, 0.4) !important;
+  border-radius: 6px !important;
+  transition: all 0.25s ease !important;
+  font-family: 'Courier New', 'Consolas', monospace !important;
+  letter-spacing: 1px !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.chat-quick button:hover {
+  background: rgba(0, 245, 255, 0.1) !important;
+  border-color: var(--neon-cyan) !important;
+  color: #fff !important;
+  text-shadow:
+    0 0 10px var(--neon-cyan),
+    0 0 20px var(--neon-cyan) !important;
+  box-shadow:
+    0 0 12px rgba(0, 245, 255, 0.35),
+    0 0 30px rgba(0, 245, 255, 0.15),
+    inset 0 0 12px rgba(0, 245, 255, 0.08) !important;
+  animation: glowBreathe 1.5s ease-in-out infinite !important;
+}
+
+/* Scan line sweep on hover */
+.chat-quick button::after {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: -100% !important;
+  width: 100% !important;
+  height: 100% !important;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(0, 245, 255, 0.1),
+    transparent
+  ) !important;
+  transition: none !important;
+}
+
+.chat-quick button:hover::after {
+  left: 100% !important;
+  transition: left 0.5s ease !important;
+}
+
+/* =====================================================================
+   .chat-msgs — Message List
+   ===================================================================== */
+.chat-msgs {
+  background: rgba(0, 2, 12, 0.5) !important;
+  position: relative !important;
+}
+
+/* Custom scrollbar — neon themed */
+.chat-msgs::-webkit-scrollbar {
+  width: 5px !important;
+}
+.chat-msgs::-webkit-scrollbar-track {
+  background: rgba(0, 5, 20, 0.6) !important;
+}
+.chat-msgs::-webkit-scrollbar-thumb {
+  background: rgba(0, 245, 255, 0.3) !important;
+  border-radius: 4px !important;
+}
+.chat-msgs::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 245, 255, 0.6) !important;
+}
+
+/* =====================================================================
+   .chat-msg — Message Bubbles
+   ===================================================================== */
+.chat-msg {
+  position: relative !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  transition: box-shadow 0.3s ease !important;
+}
+
+/* ── Holographic Shimmer Overlay on All Messages ────────────────────── */
+.chat-msg::after {
+  content: '' !important;
+  position: absolute !important;
+  inset: 0 !important;
+  background: linear-gradient(
+    105deg,
+    transparent 20%,
+    rgba(0, 245, 255, 0.04) 35%,
+    rgba(255, 45, 149, 0.03) 50%,
+    rgba(77, 124, 255, 0.04) 65%,
+    transparent 80%
+  ) !important;
+  background-size: 200% 100% !important;
+  animation: holoShimmer 6s ease-in-out infinite !important;
+  pointer-events: none !important;
+  border-radius: inherit !important;
+}
+
+/* ── User Messages ──────────────────────────────────────────────────── */
+.chat-msg.user {
+  background: rgba(0, 245, 255, 0.07) !important;
+  border: 1px solid rgba(0, 245, 255, 0.18) !important;
+  box-shadow:
+    0 0 6px rgba(0, 245, 255, 0.08),
+    inset 0 0 20px rgba(0, 245, 255, 0.03) !important;
+}
+
+.chat-msg.user .msg-role,
+.chat-msg.user .role-label {
+  color: var(--neon-cyan) !important;
+  text-shadow: 0 0 6px rgba(0, 245, 255, 0.4) !important;
+}
+
+/* ── Assistant Messages ─────────────────────────────────────────────── */
+.chat-msg.assistant {
+  background: rgba(255, 45, 149, 0.05) !important;
+  border: 1px solid rgba(255, 45, 149, 0.15) !important;
+  box-shadow:
+    0 0 6px rgba(255, 45, 149, 0.06),
+    inset 0 0 20px rgba(255, 45, 149, 0.02) !important;
+}
+
+.chat-msg.assistant .msg-role,
+.chat-msg.assistant .role-label {
+  color: var(--neon-magenta) !important;
+  text-shadow: 0 0 6px rgba(255, 45, 149, 0.4) !important;
+}
+
+/* ── System Messages ────────────────────────────────────────────────── */
+.chat-msg.system {
+  background: rgba(77, 124, 255, 0.05) !important;
+  border: 1px solid rgba(77, 124, 255, 0.12) !important;
+  box-shadow:
+    0 0 4px rgba(77, 124, 255, 0.05),
+    inset 0 0 15px rgba(77, 124, 255, 0.02) !important;
+}
+
+.chat-msg.system .msg-role,
+.chat-msg.system .role-label {
+  color: var(--neon-blue) !important;
+  text-shadow: 0 0 6px rgba(77, 124, 255, 0.4) !important;
+}
+
+/* ── Error Messages ─────────────────────────────────────────────────── */
+.chat-msg.error {
+  border-color: rgba(255, 40, 40, 0.35) !important;
+  box-shadow: 0 0 10px rgba(255, 40, 40, 0.12) !important;
+}
+
+/* ── Trade Messages ─────────────────────────────────────────────────── */
+.chat-msg.trade {
+  border-color: rgba(0, 180, 255, 0.2) !important;
+  box-shadow: 0 0 8px rgba(0, 180, 255, 0.1) !important;
+}
+
+/* =====================================================================
+   .chat-input-row — Input Area
+   ===================================================================== */
+.chat-input-row {
+  background: rgba(0, 5, 20, 0.8) !important;
+  border-top: 1px solid rgba(0, 245, 255, 0.12) !important;
+  position: relative !important;
+  z-index: 2 !important;
+}
+
+/* ── Text Input ─────────────────────────────────────────────────────── */
+.chat-input-row input {
+  background: rgba(0, 10, 30, 0.7) !important;
+  border: 1px solid rgba(0, 245, 255, 0.15) !important;
+  border-radius: 6px !important;
+  color: var(--text-primary) !important;
+  caret-color: var(--neon-cyan) !important;
+  font-family: 'Courier New', 'Consolas', monospace !important;
+  transition: all 0.3s ease !important;
+}
+
+/* Neon underline on focus */
+.chat-input-row input:focus {
+  outline: none !important;
+  border-color: var(--neon-cyan) !important;
+  box-shadow:
+    0 0 8px rgba(0, 245, 255, 0.25),
+    0 2px 0 0 var(--neon-cyan),
+    0 4px 12px rgba(0, 245, 255, 0.1) !important;
+  background: rgba(0, 15, 40, 0.8) !important;
+}
+
+/* Neon blinking cursor effect */
+.chat-input-row input:not(:placeholder-shown) {
+  border-right: 2px solid var(--neon-cyan) !important;
+  animation: neonBlink 1s step-end infinite !important;
+}
+
+/* ── Placeholder ────────────────────────────────────────────────────── */
+.chat-input-row input::placeholder {
+  color: rgba(0, 245, 255, 0.25) !important;
+  font-style: italic !important;
+}
+
+/* ── Send Button ────────────────────────────────────────────────────── */
+.chat-input-row .send-btn {
+  background: rgba(0, 245, 255, 0.08) !important;
+  border: 1px solid rgba(0, 245, 255, 0.3) !important;
+  color: var(--neon-cyan) !important;
+  text-shadow: 0 0 6px rgba(0, 245, 255, 0.5) !important;
+  border-radius: 6px !important;
+  transition: all 0.25s ease !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.chat-input-row .send-btn:hover {
+  background: rgba(0, 245, 255, 0.18) !important;
+  border-color: var(--neon-cyan) !important;
+  box-shadow:
+    0 0 15px rgba(0, 245, 255, 0.35),
+    0 0 30px rgba(0, 245, 255, 0.15) !important;
+  color: #fff !important;
+  text-shadow:
+    0 0 10px var(--neon-cyan),
+    0 0 20px var(--neon-cyan) !important;
+}
+
+.chat-input-row .send-btn:active {
+  background: rgba(0, 245, 255, 0.28) !important;
+  box-shadow:
+    0 0 20px rgba(0, 245, 255, 0.5),
+    inset 0 0 10px rgba(0, 245, 255, 0.15) !important;
+}
+
+/* Send button glow sweep */
+.chat-input-row .send-btn::after {
+  content: '' !important;
+  position: absolute !important;
+  top: -50% !important;
+  left: -50% !important;
+  width: 200% !important;
+  height: 200% !important;
+  background: conic-gradient(
+    transparent 0deg,
+    rgba(0, 245, 255, 0.1) 90deg,
+    transparent 180deg
+  ) !important;
+  animation: spin 4s linear infinite !important;
+  pointer-events: none !important;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* =====================================================================
+   .action-group / .action-step — Action Progress
+   ===================================================================== */
+.action-group {
+  border: 1px solid rgba(0, 245, 255, 0.1) !important;
+  background: rgba(0, 5, 20, 0.5) !important;
+  border-radius: 8px !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+/* Top neon progress bar */
+.action-group::before {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  height: 2px !important;
+  width: 100% !important;
+  background: linear-gradient(
+    90deg,
+    var(--neon-cyan),
+    var(--neon-magenta),
+    var(--neon-blue)
+  ) !important;
+  background-size: 200% 100% !important;
+  animation: borderShift 3s linear infinite !important;
+}
+
+.action-step {
+  color: var(--text-secondary) !important;
+  font-family: 'Courier New', 'Consolas', monospace !important;
+  border-left: 2px solid rgba(0, 245, 255, 0.15) !important;
+  padding-left: 10px !important;
+  transition: all 0.3s ease !important;
+}
+
+.action-step.active,
+.action-step.running,
+.action-step[data-status="running"] {
+  border-left-color: var(--neon-cyan) !important;
+  color: var(--neon-cyan) !important;
+  text-shadow: 0 0 6px rgba(0, 245, 255, 0.4) !important;
+  box-shadow: inset 4px 0 8px rgba(0, 245, 255, 0.06) !important;
+}
+
+.action-step.done,
+.action-step.completed,
+.action-step[data-status="done"],
+.action-step[data-status="completed"] {
+  border-left-color: var(--neon-green) !important;
+  color: var(--neon-green) !important;
+  text-shadow: 0 0 6px rgba(0, 255, 136, 0.3) !important;
+}
+
+.action-step.error,
+.action-step.failed,
+.action-step[data-status="error"],
+.action-step[data-status="failed"] {
+  border-left-color: #ff2828 !important;
+  color: #ff4444 !important;
+  text-shadow: 0 0 6px rgba(255, 40, 40, 0.3) !important;
+}
+
+/* =====================================================================
+   Additional Global Flourishes
+   ===================================================================== */
+
+/* ── Scrollbar for the whole card ───────────────────────────────────── */
+.chat-card *::-webkit-scrollbar {
+  width: 4px !important;
+}
+.chat-card *::-webkit-scrollbar-track {
+  background: rgba(0, 5, 20, 0.4) !important;
+}
+.chat-card *::-webkit-scrollbar-thumb {
+  background: rgba(0, 245, 255, 0.25) !important;
+  border-radius: 3px !important;
+}
+.chat-card *::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 245, 255, 0.5) !important;
+}
+
+/* ── Selection Color ────────────────────────────────────────────────── */
+.chat-card ::selection {
+  background: rgba(0, 245, 255, 0.25) !important;
+  color: #fff !important;
+}
+
+/* ── Flicker / Interference on Chat Card (very subtle) ──────────────── */
+@keyframes crtFlicker {
+  0%   { opacity: 1; }
+  3%   { opacity: 0.97; }
+  6%   { opacity: 1; }
+  7%   { opacity: 0.98; }
+  9%   { opacity: 1; }
+  50%  { opacity: 1; }
+  52%  { opacity: 0.98; }
+  53%  { opacity: 1; }
+  100% { opacity: 1; }
+}
+
+.chat-card {
+  animation: crtFlicker 8s infinite !important;
+}
+
+/* ── Vignette Effect ────────────────────────────────────────────────── */
+.chat-card .chat-msgs::after {
+  content: '' !important;
+  position: absolute !important;
+  inset: 0 !important;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 60%,
+    rgba(0, 0, 0, 0.35) 100%
+  ) !important;
+  pointer-events: none !important;
+  z-index: 1 !important;
+}
+
+/* ── Loading / Typing Indicator ─────────────────────────────────────── */
+.chat-msg.typing .msg-content,
+.chat-msg.loading .msg-content {
+  color: var(--neon-cyan) !important;
+  text-shadow: 0 0 8px rgba(0, 245, 255, 0.4) !important;
+}
+
+/* ── Code Blocks inside Messages ────────────────────────────────────── */
+.chat-msg pre,
+.chat-msg code {
+  background: rgba(0, 5, 20, 0.7) !important;
+  border: 1px solid rgba(0, 245, 255, 0.1) !important;
+  border-radius: 4px !important;
+  color: var(--neon-green) !important;
+  font-family: 'Courier New', 'Consolas', monospace !important;
+  text-shadow: 0 0 4px rgba(0, 255, 136, 0.2) !important;
+}
+
+/* ── Links inside Messages ──────────────────────────────────────────── */
+.chat-msg a {
+  color: var(--neon-cyan) !important;
+  text-shadow: 0 0 4px rgba(0, 245, 255, 0.3) !important;
+  text-decoration: underline rgba(0, 245, 255, 0.3) !important;
+  transition: all 0.2s ease !important;
+}
+
+.chat-msg a:hover {
+  text-shadow: 0 0 10px var(--neon-cyan) !important;
+  text-decoration-color: var(--neon-cyan) !important;
+}
+
+/* ── Timestamps / Meta text ─────────────────────────────────────────── */
+.chat-msg .msg-time,
+.chat-msg .timestamp,
+.chat-msg time {
+  color: rgba(0, 245, 255, 0.2) !important;
+  font-family: 'Courier New', 'Consolas', monospace !important;
+}
+
+/* =====================================================================
+   Responsive & Reduced Motion
+   ===================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  .chat-card,
+  .chat-card::before,
+  .chat-card::after,
+  .chat-card-head .head-left .title,
+  .chat-card-head .head-left .title::after,
+  .chat-card-head .head-left .title::before,
+  .chat-card-head .head-left .dot,
+  .chat-msg::after,
+  .chat-quick button::after,
+  .chat-input-row input:not(:placeholder-shown),
+  .action-group::before,
+  .chat-input-row .send-btn::after {
+    animation: none !important;
+  }
+}
+
+/* ── Small screens: reduce glow intensity ───────────────────────────── */
+@media (max-width: 480px) {
+  .chat-card {
+    box-shadow:
+      0 0 8px rgba(0, 245, 255, 0.08),
+      inset 0 0 30px rgba(0, 0, 0, 0.4) !important;
+  }
+  .chat-card::after {
+    opacity: 0.5 !important;
+  }
+}

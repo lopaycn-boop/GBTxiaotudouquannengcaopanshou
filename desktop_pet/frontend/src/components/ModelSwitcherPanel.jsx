@@ -1,4 +1,5 @@
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
+import PropTypes from 'prop-types';
 
 const MODELS = [
   { id: 'deepseek-chat', name: 'DeepSeek', desc: '深度求索·灵敏度最高', tier: 1, color: '#69f0ae' },
@@ -88,3 +89,10 @@ export default function ModelSwitcher({ currentModel, onSwitch, connected, lang 
     </div>
   );
 }
+
+ModelSwitcher.propTypes = {
+  currentModel: PropTypes.string,
+  onSwitch: PropTypes.any,
+  connected: PropTypes.bool,
+  lang: PropTypes.string
+};

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import PropTypes from 'prop-types';
 
 export default function TradeConfirmDialog({ trade, onConfirm, onCancel, lang = 'zh' }) {
   const [confirmed, setConfirmed] = useState(false);
@@ -119,3 +120,18 @@ export default function TradeConfirmDialog({ trade, onConfirm, onCancel, lang = 
     </div>
   );
 }
+
+TradeConfirmDialog.propTypes = {
+  trade: PropTypes.shape({
+      action: PropTypes.any,
+      mode: PropTypes.any,
+      name: PropTypes.any,
+      code: PropTypes.any,
+      price: PropTypes.any,
+      amount: PropTypes.any,
+      confidence: PropTypes.any
+    }),
+  onConfirm: PropTypes.func,
+  onCancel: PropTypes.func,
+  lang: PropTypes.string
+};

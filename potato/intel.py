@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import logging
 import uuid
-import xml.etree.ElementTree as ET
+# M4: Use defusedxml to prevent XXE attacks when parsing external RSS feeds
+try:
+    import defusedxml.ElementTree as ET
+except ImportError:
+    import xml.etree.ElementTree as ET  # fallback if defusedxml not installed
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote_plus

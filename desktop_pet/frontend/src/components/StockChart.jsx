@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import PropTypes from 'prop-types';
 
 const CHART_COLORS = {
   up: '#69f0ae',
@@ -101,7 +102,7 @@ export default function StockChart({ data = [], symbol = '上证指数', width =
 
     // Hover crosshair
     if (hoverIdx !== null && hoverIdx >= 0 && hoverIdx < visibleData.length) {
-      const d = visibleData[hoverIdx];
+      const _d = visibleData[hoverIdx];
       const x = padding.left + barW * hoverIdx + barW / 2;
       ctx.strokeStyle = CHART_COLORS.crosshair;
       ctx.setLineDash([3, 3]);
@@ -172,3 +173,10 @@ export default function StockChart({ data = [], symbol = '上证指数', width =
     </div>
   );
 }
+
+drawCandle.propTypes = {
+  data: PropTypes.object,
+  symbol: PropTypes.string,
+  width: PropTypes.number,
+  height: PropTypes.number
+};

@@ -22,7 +22,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import time
 from typing import Any
 
 import httpx
@@ -368,7 +367,6 @@ def _em_hot_tables_push2ex(market: int) -> list[dict]:
 
 def _em_hot_tables_dc(market: int) -> list[dict]:
     """EastMoney datacenter API for Dragon Tiger List."""
-    market_map = {1: "沪A", 2: "港股", 3: "美股"}
     try:
         client = httpx.Client(timeout=_TIMEOUT, follow_redirects=True)
         params = {

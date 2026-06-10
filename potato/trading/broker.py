@@ -23,10 +23,9 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
@@ -36,6 +35,16 @@ from potato.user_prefs import UserPrefs
 logger = logging.getLogger("potato.trading.broker")
 
 TRADING_MODE = os.environ.get("TRADING_MODE", "dry_run").lower()
+
+# H8: Live mode requires explicit risk acceptance confirmation
+if TRADING_MODE == "live":
+    _live_confirm = os.environ.get("POTATO_LIVE_CONFIRMED", "")
+    if _live_confirm != "I_UNDERSTAND_THE_RISKS":
+        logger.warning(
+            "TRADING_MODE=live but POTATO_LIVE_CONFIRMED not set correctly. "
+            "Falling back to dry_run. Set POTATO_LIVE_CONFIRMED=I_UNDERSTAND_THE_RISKS to enable live mode."
+        )
+        TRADING_MODE = "dry_run"
 
 
 @dataclass
@@ -134,7 +143,7 @@ class DryRunBroker:
             prefs = UserPrefs()
             all_prefs = prefs.get_all()
             daily = all_prefs.get("max_daily_trade_cny") or all_prefs.get("max_daily_cny")
-            single = all_prefs.get("max_single_trade_cny") or all_prefs.get("max_single_cny")
+            all_prefs.get("max_single_trade_cny") or all_prefs.get("max_single_cny")
             if daily:
                 self._balance = BalanceInfo(
                     total_assets=Decimal(str(daily)),

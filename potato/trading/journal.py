@@ -19,14 +19,12 @@ import logging
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
-from pathlib import Path
-from typing import Any
 
 from potato.trading.analyzer import fetch_realtime_quote
 
-logger = logging.getLogger("potato.trading.journal")
-
 from potato.paths import DATA_DIR
+
+logger = logging.getLogger("potato.trading.journal")
 
 BJT = timezone(timedelta(hours=8))
 JOURNAL_DIR = DATA_DIR / "journal"
@@ -461,7 +459,7 @@ class TradeJournal:
 
         wins = [t for t in day_trades if t.realized_pnl > 0]
         losses = [t for t in day_trades if t.realized_pnl < 0]
-        even = [t for t in day_trades if t.realized_pnl == 0]
+        [t for t in day_trades if t.realized_pnl == 0]
 
         total_pnl = sum(t.realized_pnl for t in day_trades)
         avg_win = (sum(t.realized_pnl for t in wins) / len(wins)) if wins else Decimal("0")

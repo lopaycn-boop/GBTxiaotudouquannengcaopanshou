@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 
 const STORAGE_KEY = 'potato_chat_history';
 const MAX_MESSAGES = 200;
@@ -10,7 +10,7 @@ function loadMessages() {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return parsed.slice(-MAX_MESSAGES);
-  } catch (e) {
+  } catch (_e) {
     return [];
   }
 }
@@ -19,10 +19,10 @@ function saveMessages(msgs) {
   try {
     const toSave = msgs.slice(-MAX_MESSAGES);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
-  } catch (e) {
+  } catch (_e) {
     try {
       localStorage.removeItem(STORAGE_KEY);
-    } catch (e2) {}
+    } catch (_e2) { /* empty */ }
   }
 }
 
@@ -39,7 +39,7 @@ export function usePersistentMessages() {
 
   const clearMessages = useCallback(() => {
     setMessagesInternal([]);
-    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+    try { localStorage.removeItem(STORAGE_KEY); } catch (_e) { /* empty */ }
   }, []);
 
   return { messages, setMessages, clearMessages };

@@ -4,7 +4,6 @@ import base64
 import hashlib
 import io
 import json
-import os
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -155,8 +154,10 @@ class ZeaburClient:
 
     @staticmethod
     def _zip_project(root: Path) -> bytes:
-        skip_dirs = {".git", ".venv", "__pycache__", "data", "node_modules"}
+        skip_dirs = {".git", ".venv", "__pycache__", "data", "node_modules", "config"}
         skip_files = {".env", ".secrets.local.json", ".zeabur-build.env", "zbpack.json"}
+        # H5: Also skip sensitive file types
+        skip_suffixes = {".db", ".pyc", ".pem", ".key", ".p12", ".pfx"}
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
             for path in root.rglob("*"):
@@ -166,7 +167,7 @@ class ZeaburClient:
                 parts = set(rel.parts)
                 if parts & skip_dirs:
                     continue
-                if rel.name in skip_files or rel.suffix in {".db", ".pyc"}:
+                if rel.name in skip_files or rel.suffix in skip_suffixes:
                     continue
                 zf.write(path, rel.as_posix())
         return buf.getvalue()

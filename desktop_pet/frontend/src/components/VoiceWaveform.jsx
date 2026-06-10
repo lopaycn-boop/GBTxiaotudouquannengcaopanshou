@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import PropTypes from 'prop-types';
 
 export default function VoiceWaveform({ isRecording, onStop }) {
   const canvasRef = useRef(null);
@@ -153,3 +154,8 @@ export default function VoiceWaveform({ isRecording, onStop }) {
     </div>
   );
 }
+
+VoiceWaveform.propTypes = {
+  isRecording: PropTypes.bool,
+  onStop: PropTypes.func
+};

@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
+import PropTypes from 'prop-types';
 
 export default function ChatSearch({ messages, onJumpTo, onClose, lang = 'zh' }) {
   const [query, setQuery] = useState('');
@@ -78,3 +79,10 @@ export default function ChatSearch({ messages, onJumpTo, onClose, lang = 'zh' })
     </div>
   );
 }
+
+ChatSearch.propTypes = {
+  messages: PropTypes.array,
+  onJumpTo: PropTypes.func,
+  onClose: PropTypes.func,
+  lang: PropTypes.string
+};

@@ -1,7 +1,8 @@
-import React from 'react';
+/* global process */
 import usePerformanceMonitor from '../hooks/usePerformanceMonitor';
+import PropTypes from 'prop-types';
 
-export default function PerfMonitor({ lang = 'zh' }) {
+export default function PerfMonitor({ _lang = 'zh' }) {
   const { fps, memory } = usePerformanceMonitor(2000);
 
   const fpsColor = fps > 50 ? '#69f0ae' : fps > 30 ? '#ffd740' : '#ff5252';
@@ -20,3 +21,7 @@ export default function PerfMonitor({ lang = 'zh' }) {
     </div>
   );
 }
+
+PerfMonitor.propTypes = {
+  lang: PropTypes.string
+};

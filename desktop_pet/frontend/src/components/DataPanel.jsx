@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import '../App.css';
+import PropTypes from 'prop-types';
 
 const DATA_SOURCES = [
   { id: 'deepseek', label: 'DeepSeek LLM', emoji: '🧠', desc: '5层AI路由主引擎' },
@@ -30,7 +31,7 @@ const IWENCAI_QUICK_QUERIES = [
   'RSI超卖的股票',
 ];
 
-const DataPanel = ({ sendPacket, messages }) => {
+const DataPanel = ({ sendPacket, _messages }) => {
   const [queryInput, setQueryInput] = useState('');
   const [searchKeyword, setSearchKeyword] = useState('');
   const [searchChannel, setSearchChannel] = useState('news');
@@ -299,3 +300,8 @@ const DataPanel = ({ sendPacket, messages }) => {
 };
 
 export default DataPanel;
+
+DataPanel.propTypes = {
+  sendPacket: PropTypes.func,
+  messages: PropTypes.array
+};

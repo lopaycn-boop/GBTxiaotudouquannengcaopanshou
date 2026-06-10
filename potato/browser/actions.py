@@ -17,13 +17,13 @@ import re
 from typing import Any
 
 from potato.browser.engine import BrowserEngine, _PLAYWRIGHT_AVAILABLE
-from potato.browser.platforms import PlatformConfig, PlatformRegistry
+from potato.browser.platforms import PlatformRegistry
 from potato.security import mask_secret
 
 logger = logging.getLogger("potato.browser.actions")
 
 _ALLOWED_TRADE_ACTIONS = {"navigate", "click", "fill", "wait", "screenshot", "read"}
-_URL_WHITELIST_RE = re.compile(r"^https?://([a-zA-Z0-9.-]+\.)?(eastmoney\.com|10jqka\.com\.cn|xueqiu\.com|localhost|127\.0\.0\.1)([:/]|$)", re.IGNORECASE)
+_URL_WHITELIST_RE = re.compile(r"^https?://([a-zA-Z0-9.-]+\.)?(eastmoney\.com|10jqka\.com\.cn|xueqiu\.com)([:/]|$)", re.IGNORECASE)
 
 
 class BrowserTrader:

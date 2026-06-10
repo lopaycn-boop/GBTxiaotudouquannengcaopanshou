@@ -1,4 +1,43 @@
 const MODEL_REGISTRY = {
+  Lisette: {
+    id: 'Lisette',
+    name: 'Lisette (莉赛特)',
+    nameZh: '莉赛特',
+    description: '性感哥特少女，23种表情+29种动作，支持物理模拟和眨眼',
+    path: '/models/Lisette/Lisette.model3.json',
+    thumbnail: '/models/Lisette/Lisette.4096/texture_00.png',
+    tags: ['性感', '哥特', 'VTuber', '表情丰富', '推荐'],
+    available: true,
+    hasExpressions: true,
+    expressionMap: {
+      '生气': 'angry',
+      '害羞': 'shy',
+      '脸红': 'blush_exp',
+      '悲伤': 'sad',
+      '疯狂': 'frenzy',
+      '撅嘴': 'pout_exp',
+      '泪目': 'tear',
+      '猫耳': 'cat_ear_exp',
+      '眼闪': 'eye_shine_exp',
+      '吐舌': 'tongue_out',
+    },
+    emotionToExpression: {
+      'happy': 'blush_exp',
+      'excited': 'eye_shine_exp',
+      'neutral': null,
+      'bored': 'pout_exp',
+      'angry': 'angry',
+      'sad': 'sad',
+      'surprised': 'eye_shine_exp',
+      'shy': 'shy',
+      'thinking': 'cat_ear_exp',
+      'love': 'blush_exp',
+      'money': 'eye_shine_exp',
+      'cry': 'tear',
+      'pout': 'pout_exp',
+    },
+    placement: { xRatio: 0.73, yRatio: 1.0, anchorX: 0.5, anchorY: 1.0, scaleW: 0.5, scaleH: 0.6 },
+  },
   Haru: {
     id: 'Haru',
     name: '春 (Haru)',
@@ -152,7 +191,7 @@ const MODEL_REGISTRY = {
   },
 };
 
-const DEFAULT_MODEL_ID = 'Haru';
+const DEFAULT_MODEL_ID = 'Lisette';
 
 function getSavedModelId() {
   try {
@@ -165,7 +204,7 @@ function getSavedModelId() {
 function saveModelId(id) {
   try {
     localStorage.setItem('pet_model_id', id);
-  } catch {}
+  } catch { /* empty */ }
 }
 
 function getModelConfig(modelId) {

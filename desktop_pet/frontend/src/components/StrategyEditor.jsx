@@ -1,4 +1,5 @@
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
+import PropTypes from 'prop-types';
 
 const PRESETS = [
   { id: 'conservative', label: '🛡️ 稳健', desc: '止损5%/止盈8%/最多2只', stopLoss: 5, takeProfit: 8, maxPositions: 2 },
@@ -136,3 +137,9 @@ export default function StrategyEditor({ riskConfig = {}, onApply, lang = 'zh' }
     </div>
   );
 }
+
+StrategyEditor.propTypes = {
+  riskConfig: PropTypes.object,
+  onApply: PropTypes.func,
+  lang: PropTypes.string
+};

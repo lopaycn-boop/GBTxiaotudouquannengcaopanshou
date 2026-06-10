@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import '../App.css';
+import PropTypes from 'prop-types';
 
 const QUICK_KEYS = [
   { key: 'DEEPSEEK_API_KEY', label: 'DeepSeek Key', emoji: '🧠' },
@@ -14,8 +15,8 @@ const Sidebar = ({ isOpen, onClose, messages, sendPacket }) => {
   const [pasteValue, setPasteValue] = useState('');
   const [pasteMsg, setPasteMsg] = useState(null);
   const [memoryQuery, setMemoryQuery] = useState('');
-  const [memoryResults, setMemoryResults] = useState([]);
-  const [memoryLoading, setMemoryLoading] = useState(false);
+  const [_memoryResults, _setMemoryResults] = useState([]);
+  const [_memoryLoading, setMemoryLoading] = useState(false);
 
   const handlePasteStore = () => {
     const val = pasteValue.trim();
@@ -190,3 +191,10 @@ const Sidebar = ({ isOpen, onClose, messages, sendPacket }) => {
 };
 
 export default Sidebar;
+
+Sidebar.propTypes = {
+  isOpen: PropTypes.bool,
+  onClose: PropTypes.func,
+  messages: PropTypes.array,
+  sendPacket: PropTypes.func
+};

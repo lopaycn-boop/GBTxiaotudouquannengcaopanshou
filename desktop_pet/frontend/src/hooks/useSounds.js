@@ -10,7 +10,7 @@ function getSettings() {
   try {
     const raw = localStorage.getItem('potato_settings');
     if (raw) soundSettings = JSON.parse(raw);
-  } catch (e) {}
+  } catch (_e) { /* empty */ }
   if (!soundSettings) soundSettings = { soundEnabled: true, soundVolume: 0.5 };
   return soundSettings;
 }

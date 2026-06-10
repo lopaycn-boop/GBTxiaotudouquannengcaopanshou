@@ -381,7 +381,7 @@ class RiskValidator:
         if now_bjt.weekday() >= 5:
             return RiskVerdict(
                 allowed=False,
-                reason=f"WEEKEND: 今天是周末，A股不开盘",
+                reason="WEEKEND: 今天是周末，A股不开盘",
             )
 
         current_time = now_bjt.time()

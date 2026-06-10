@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import PropTypes from 'prop-types';
 
 export default function TradeHistoryPanel({ onClose, sendPacket, messages }) {
   const [tab, setTab] = useState('recent');
@@ -13,8 +14,8 @@ export default function TradeHistoryPanel({ onClose, sendPacket, messages }) {
     .slice(-30);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 9998, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: '#1a1a2e', borderRadius: 18, width: 400, maxHeight: '80vh', overflow: 'auto', padding: 0, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
+    <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 380, zIndex: 9998, background: 'rgba(0,0,0,0.3)', display: 'flex', justifyContent: 'flex-end' }} onClick={onClose}>
+      <div style={{ background: '#1a1a2e', borderRadius: '18px 0 0 18px', width: '100%', height: '100%', overflow: 'auto', padding: 0, boxShadow: '-4px 0 24px rgba(0,0,0,0.5)' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
           <span style={{ fontSize: 16, fontWeight: 700, color: '#4fc3f7' }}>📊 交易记录</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#888', fontSize: 20, cursor: 'pointer' }}>✕</button>
@@ -80,3 +81,9 @@ export default function TradeHistoryPanel({ onClose, sendPacket, messages }) {
     </div>
   );
 }
+
+TradeHistoryPanel.propTypes = {
+  onClose: PropTypes.func,
+  sendPacket: PropTypes.func,
+  messages: PropTypes.array
+};

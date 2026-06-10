@@ -1,7 +1,6 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import Live2DController from '../components/Live2D/Live2DController';
 import LoadingDots from '../components/LoadingDots';
-import ModelPicker from '../components/ModelPicker';
 import BillingPanel from '../components/BillingPanel';
 import RenewalPanel from '../components/RenewalPanel';
 import DataPanel from '../components/DataPanel';
@@ -9,6 +8,7 @@ import SettingsPanel from '../components/SettingsPanel';
 import TradeHistoryPanel from '../components/TradeHistoryPanel';
 import OnboardingWizard from '../components/OnboardingWizard';
 import '../App.css';
+import '../futuristic-theme.css';
 
 import { useAudioQueue } from '../hooks/useAudioQueue';
 import { useNeuroSocket } from '../hooks/useNeuroSocket';
@@ -20,6 +20,8 @@ import { inferEmotionFromMessage, emotionToExpression, stateToExpression } from 
 import { usePersistentMessages } from '../hooks/usePersistentMessages';
 import { renderMessageContent } from '../hooks/useMessageRenderer.jsx';
 import { getSavedModelId, saveModelId } from '../components/Live2D/modelRegistry';
+import { parseVoiceCommand, isPureMotionCommand } from '../components/Live2D/voiceMotionMap';
+import DragonOrbit from '../components/DragonOrbit';
 import ErrorBoundary from '../components/ErrorBoundary';
 import SplashScreen from '../components/SplashScreen';
 import ToastContainer, { showToast } from '../components/ToastContainer';
@@ -207,9 +209,7 @@ export default function MainPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [showTradeHistory, setShowTradeHistory] = useState(false);
   const [dashboardTab, setDashboardTab] = useState('chart');
-  const [showOnboarding, setShowOnboarding] = useState(() => {
-    try { return !localStorage.getItem('potato_onboarding_done'); } catch(e) { return false; }
-  });
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [alwaysOnTop, setAlwaysOnTop] = useState(true);
   const [systemStatus, setSystemStatus] = useState(null);
   const [splashStage, setSplashStage] = useState('init');
@@ -228,7 +228,32 @@ export default function MainPage() {
   useClickThrough();
   const { notify } = useDesktopNotification();
   const { listening: wakeListening, startWakeListener, stopWakeListener } = useWakeWord({
-    onWake: useCallback(() => { setChatOpen(true); }, []),
+    onWake: useCallback(() => {
+      setChatOpen(true);
+      // 唤醒词命中后自动开始录音
+      setTimeout(() => {
+        if (!recording) startRecording();
+      }, 300);
+      // 触发打招呼动作
+      if (live2dRef.current) {
+        try { live2dRef.current.playMotionByName('Greet'); } catch (_) {}
+        try { live2dRef.current.showExpression('happy', true); } catch (_) {}
+      }
+    }, [recording, startRecording]),
+    onMotionCommand: useCallback((text) => {
+      // 声控动作口令：直接触发桌宠肢体动作+表情
+      const actions = parseVoiceCommand(text);
+      actions.forEach(a => {
+        if (live2dRef.current && live2dRef.current[a.method]) {
+          try {
+            live2dRef.current[a.method](...a.args);
+            console.log(`[WakeAction] ${a.type}: ${a.desc}`);
+          } catch (e) {
+            console.warn(`[WakeAction] failed:`, e);
+          }
+        }
+      });
+    }, []),
   });
 
   const { subtitle, isPlaying, queueAudioChunk, stopAudio } = useAudioQueue(live2dRef);
@@ -783,7 +808,20 @@ case 'billing_renewal_payment': {
         break;
       case 'voice_stt_result':
         if (payload?.text) {
-          setMessages(prev => [...prev, { type: 'assistant', content: maskSecrets(payload.text) }]);
+          const voiceText = payload.text;
+          // 声控动作解析：触发桌宠肢体动作+表情
+          const actions = parseVoiceCommand(voiceText);
+          actions.forEach(a => {
+            if (live2dRef.current && live2dRef.current[a.method]) {
+              try {
+                live2dRef.current[a.method](...a.args);
+                console.log(`[VoiceAction] ${a.type}: ${a.desc}`);
+              } catch (e) {
+                console.warn(`[VoiceAction] failed:`, e);
+              }
+            }
+          });
+          setMessages(prev => [...prev, { type: 'assistant', content: maskSecrets(voiceText) }]);
         }
         break;
       case 'voice_call_ended':
@@ -917,6 +955,13 @@ case 'billing_renewal_payment': {
   const wsProto = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws';
   const fullWsUrl = typeof window !== 'undefined' ? `${wsProto}${WS_URL}` : 'ws://127.0.0.1:8000/ws';
   const { sendPacket, connected } = useNeuroSocket(fullWsUrl, handleServerPacket);
+
+  // 自动启动语音唤醒——桌面只有桌宠，声控默认开启
+  useEffect(() => {
+    if (connected && !wakeListening) {
+      startWakeListener();
+    }
+  }, [connected]);
 
   const prevConnectedRef = useRef(connected);
   useEffect(() => {
@@ -1111,10 +1156,15 @@ case 'billing_renewal_payment': {
   }, []);
 
   const handleMicClick = useCallback(() => {
-    if (recording) {
+    if (chatOpen && !recording) {
+      // 对话框已打开且没在录音 → 关闭对话框
+      setChatOpen(false);
+    } else if (recording) {
+      // 正在录音 → 停止录音
       stopRecording();
     } else {
-      if (!chatOpen) setChatOpen(true);
+      // 对话框关闭 → 打开对话框 + 开始录音
+      setChatOpen(true);
       startRecording();
     }
   }, [recording, chatOpen, startRecording, stopRecording]);
@@ -1332,10 +1382,9 @@ case 'billing_renewal_payment': {
       lang={isZh ? 'zh' : 'en'}
     />
     <div className="app">
-      {/* 桌宠：全屏 */}
+      {/* 桌宠：全屏，干净桌面只有桌宠 */}
       <div className="pet-layer">
         <Live2DController ref={live2dRef} modelId={currentModel} />
-        <ModelPicker currentModel={currentModel} onSwitch={handleModelSwitch} />
 
         {recording && <div className="recording-ring" />}
         {recording && <div className="recording-ring-text">🎤</div>}
@@ -1348,49 +1397,23 @@ case 'billing_renewal_payment': {
           )}
         </div>
 
-        {/* 胸口隐形触摸区：点一下=开始/停止录音，聊天卡片打开 */}
+        {/* 胸口隐形触摸区：点一下=召唤/关闭对话框+开始录音 */}
         <div className="pet-tap-zone" onClick={handleMicClick} />
-
-        {!chatOpen && neuroState === 'idle' && !recording && (
-          <div className="tap-hint">👆 点我开始对话</div>
-        )}
       </div>
 
       {/* 聊天浮窗：左侧 */}
-      <div className={`chat-card ${chatOpen ? 'visible' : 'hidden'}`} style={{ width: chatWidth, transition: isDragging?.current ? 'none' : 'width 0.2s' }} onContextMenu={handleContextMenu}>
+      <div className={`chat-card ${chatOpen ? 'visible' : 'hidden'}`} style={{ width: chatWidth, transition: isDragging?.current ? 'none' : 'width 0.2s', position: 'relative', overflow: 'visible' }} onContextMenu={handleContextMenu}>
+        {/* 龙绕对话框 */}
+        <DragonOrbit />
         <div className="chat-resize-handle" {...resizeHandleProps} style={{ position: 'absolute', top: 0, bottom: 0, right: 0, width: 6, cursor: 'ew-resize', zIndex: 10 }} />
         <div className="chat-card-head">
           <div className="head-left">
             <span className="dot" style={{ background: stateColor, color: stateColor }}></span>
             <span className="title">🥔 小土豆</span>
             <span className="state">{stateLabel}</span>
-            {systemStatus && (
-              <span style={{ fontSize: 10, opacity: 0.5, marginLeft: 4 }}>
-                {connected ? '' : '⚠️断开'}
-                {systemStatus.data_sources?.demo_mode ? '📋demo' :
-                 systemStatus.data_sources?.active_providers > 0 ?
-                 `🟢${systemStatus.data_sources.active_providers}key` : '🔴0key'}
-              </span>
-            )}
-            <button
-              onClick={() => wakeListening ? stopWakeListener() : startWakeListener()}
-              style={{
-                marginLeft: 6, fontSize: 11, border: 'none', cursor: 'pointer',
-                background: wakeListening ? 'rgba(0,200,120,0.3)' : 'rgba(255,255,255,0.08)',
-                borderRadius: 8, padding: '2px 6px', color: wakeListening ? '#4fc3f7' : '#888',
-              }}
-              title={wakeListening ? '语音唤醒已开启（喊"小土豆"即可对话）' : '点击开启语音唤醒'}
-            >
-              {wakeListening ? '🔊唤醒' : '🔇唤醒'}
-            </button>
-            <ModelSwitcherPanel currentModel={currentModel} onSwitch={(id) => { setCurrentModel(id); saveModelId(id); showToast(`模型已切换`, 'success'); }} connected={connected} lang={isZh ? 'zh' : 'en'} />
           </div>
           <button className="close-btn" onClick={() => setChatOpen(false)}>✕</button>
-            <button onClick={clearMessages} title="清空聊天记录" style={{ background: 'none', border: 'none', color: '#888', fontSize: 14, cursor: 'pointer', padding: '0 4px', marginLeft: 4 }}>🗑️</button>
-            <button onClick={() => switchLang(isZh ? 'en' : 'zh')} title={isZh ? 'Switch to English' : '切换到中文'} style={{ background: 'none', border: 'none', color: isZh ? '#69f0ae' : '#888', fontSize: 14, cursor: 'pointer', padding: '0 4px', marginLeft: 4 }}>🌐</button>
-<button onClick={cycleTheme} title={theme === 'dark' ? '切换浅色' : theme === 'light' ? '跟随系统' : '切换深色'} style={{ background: 'none', border: 'none', color: '#888', fontSize: 14, cursor: 'pointer', padding: '0 4px', marginLeft: 4 }}>{effectiveTheme === 'dark' ? '🌙' : '☀️'}</button>
-            <button onClick={() => setShowChatSearch(s => !s)} title="搜索聊天" style={{ background: 'none', border: 'none', color: '#888', fontSize: 14, cursor: 'pointer', padding: '0 4px', marginLeft: 4 }}>🔍</button>
-         </div>
+        </div>
 
         {showChatSearch && (
           <ChatSearch

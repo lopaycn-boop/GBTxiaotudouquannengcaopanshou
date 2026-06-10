@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import { useState } from 'react';
+import PropTypes from 'prop-types';
 
 const STORAGE_KEY = 'potato_settings';
 
@@ -21,12 +22,12 @@ function loadSettings() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return { ...DEFAULTS, ...JSON.parse(raw) };
-  } catch (e) {}
+  } catch (_e) { /* empty */ }
   return { ...DEFAULTS };
 }
 
 function saveSettings(s) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch (e) {}
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch (_e) { /* empty */ }
 }
 
 export default function SettingsPanel({ onClose, wakeListening, toggleWakeWord, alwaysOnTop, onToggleAlwaysOnTop, messages, sendPacket }) {
@@ -199,4 +200,21 @@ function Row({ label, children }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
+// eslint-disable-next-line react-refresh/only-export-components
 export { loadSettings, saveSettings, DEFAULTS };
+
+loadSettings.propTypes = {
+  onClose: PropTypes.func,
+  wakeListening: PropTypes.func,
+  toggleWakeWord: PropTypes.func,
+  alwaysOnTop: PropTypes.bool,
+  onToggleAlwaysOnTop: PropTypes.func,
+  messages: PropTypes.array,
+  sendPacket: PropTypes.func,
+  title: PropTypes.string,
+  children: PropTypes.node,
+  label: PropTypes.string,
+  value: PropTypes.any,
+  onChange: PropTypes.func
+};

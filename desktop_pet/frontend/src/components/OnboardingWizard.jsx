@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
+import PropTypes from 'prop-types';
 
 const ONBOARDING_KEY = 'potato_onboarding_done';
 
@@ -10,7 +11,7 @@ const STEPS = [
   { icon: '⚙️', title: '个性化设置', desc: '右上角设置可以调整音量、透明度、语音唤醒、桌面通知等', action: 'done' },
 ];
 
-export default function OnboardingWizard({ onComplete, sendPacket }) {
+export default function OnboardingWizard({ onComplete, _sendPacket }) {
   const [step, setStep] = useState(0);
   const [skipped, setSkipped] = useState(false);
 
@@ -64,3 +65,8 @@ export default function OnboardingWizard({ onComplete, sendPacket }) {
     </div>
   );
 }
+
+OnboardingWizard.propTypes = {
+  onComplete: PropTypes.func,
+  sendPacket: PropTypes.func
+};

@@ -1,4 +1,5 @@
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
+import PropTypes from 'prop-types';
 
 export default function MessageActions({ message, onCopy, onRetry, onDelete, onPin, isPinned, lang = 'zh' }) {
   const [copied, setCopied] = useState(false);
@@ -59,3 +60,16 @@ export default function MessageActions({ message, onCopy, onRetry, onDelete, onP
     </div>
   );
 }
+
+MessageActions.propTypes = {
+  message: PropTypes.shape({
+      content: PropTypes.any,
+      type: PropTypes.any
+    }),
+  onCopy: PropTypes.func,
+  onRetry: PropTypes.func,
+  onDelete: PropTypes.func,
+  onPin: PropTypes.func,
+  isPinned: PropTypes.bool,
+  lang: PropTypes.string
+};

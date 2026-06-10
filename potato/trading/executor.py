@@ -28,8 +28,6 @@ from typing import Any
 from potato.risk import RiskValidator, RiskState, TradeRequest
 from potato.trading.analyzer import (
     fetch_realtime_quote,
-    fetch_kline,
-    technical_summary,
 )
 from potato.trading.broker import BrokerAdapter
 from potato.trading.journal import TradeJournal

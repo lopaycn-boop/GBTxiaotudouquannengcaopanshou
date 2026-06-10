@@ -14,12 +14,11 @@ import logging
 import os
 import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger("potato.user_prefs")
-
 from potato.paths import DATA_DIR
+
+logger = logging.getLogger("potato.user_prefs")
 
 DEFAULT_PREFS = {
     "sectors": [],
@@ -83,6 +82,22 @@ class UserPrefs:
         return self._prefs.get(key, default)
 
     def update(self, updates: dict[str, Any]) -> dict[str, Any]:
+        # H7: Validate risk parameters
+        if "max_single_trade_cny" in updates:
+            v = updates["max_single_trade_cny"]
+            if not isinstance(v, (int, float)) or v < 0:
+                raise ValueError(f"max_single_trade_cny must be >= 0, got {v}")
+        if "stop_loss_pct" in updates:
+            v = updates["stop_loss_pct"]
+            if not isinstance(v, (int, float)) or not (0 < v < 1):
+                raise ValueError(f"stop_loss_pct must be in (0, 1), got {v}")
+        if "take_profit_pct" in updates:
+            v = updates["take_profit_pct"]
+            if not isinstance(v, (int, float)) or not (0 < v < 1):
+                raise ValueError(f"take_profit_pct must be in (0, 1), got {v}")
+        # H7: auto_trade_enabled requires risk_confirmed
+        if updates.get("auto_trade_enabled") and not self._prefs.get("risk_confirmed") and not updates.get("risk_confirmed"):
+            raise ValueError("Cannot enable auto_trade without risk_confirmed=True")
         for k, v in updates.items():
             if k in DEFAULT_PREFS:
                 self._prefs[k] = v
@@ -140,11 +155,16 @@ class UserPrefs:
             positions = self._prefs.get("max_open_positions")
             sl = self._prefs.get("stop_loss_pct")
             tp = self._prefs.get("take_profit_pct")
-            if single is not None: lines.append(f"单笔限额: ¥{single}")
-            if daily is not None: lines.append(f"日限额: ¥{daily}")
-            if positions is not None: lines.append(f"最多持仓: {positions}只")
-            if sl is not None: lines.append(f"止损线: {float(sl)*100:.0f}%")
-            if tp is not None: lines.append(f"止盈线: {float(tp)*100:.0f}%")
+            if single is not None:
+                lines.append(f"单笔限额: ¥{single}")
+            if daily is not None:
+                lines.append(f"日限额: ¥{daily}")
+            if positions is not None:
+                lines.append(f"最多持仓: {positions}只")
+            if sl is not None:
+                lines.append(f"止损线: {float(sl)*100:.0f}%")
+            if tp is not None:
+                lines.append(f"止盈线: {float(tp)*100:.0f}%")
         else:
             lines.append("⚠️ 风控参数未设置——用户还没确认限额，你必须先问用户确认！")
             lines.append("请主动问用户：1) 单笔最多投多少？ 2) 每天最多投多少？ 3) 最多同时持几只股？ 4) 止损比例设多少？")

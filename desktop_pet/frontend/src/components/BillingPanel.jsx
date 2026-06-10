@@ -1,9 +1,9 @@
-import React from 'react';
 
-export default function BillingPanel({ data, onClose, onRenew, onTopup, onConfirmPayment }) {
+import PropTypes from 'prop-types';
+export default function BillingPanel({ data, onClose, onRenew, onTopup, _onConfirmPayment }) {
   if (!data) return null;
 
-  const { providers = [], wallet = {}, summary_text = '', needs_payment_count = 0 } = data;
+  const { providers = [], wallet = {}, _summary_text = '', needs_payment_count = 0 } = data;
   const activeProviders = providers.filter(p => p.key_configured);
   const inactiveProviders = providers.filter(p => !p.key_configured);
   const balance = wallet.remaining_cny ?? wallet.balance_cny ?? 0;
@@ -101,3 +101,16 @@ export default function BillingPanel({ data, onClose, onRenew, onTopup, onConfir
     </div>
   );
 }
+
+BillingPanel.propTypes = {
+  data: PropTypes.shape({
+      providers: PropTypes.any,
+      wallet: PropTypes.any,
+      summary_text: PropTypes.any,
+      needs_payment_count: PropTypes.any
+    }),
+  onClose: PropTypes.func,
+  onRenew: PropTypes.func,
+  onTopup: PropTypes.func,
+  onConfirmPayment: PropTypes.func
+};

@@ -310,7 +310,6 @@ def _iwencai_web_query(question: str, page: int, limit: int) -> dict[str, Any]:
 
 def _em_datacenter_query(question: str, page: int, limit: int) -> dict[str, Any]:
     """EastMoney datacenter as last resort for stock queries."""
-    import re as _re
     dc_url = "https://datacenter-web.eastmoney.com/api/data/v1/get"
     question_lower = question.lower()
     report_map = {

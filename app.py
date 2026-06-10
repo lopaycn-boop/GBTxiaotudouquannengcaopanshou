@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import html
 import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -356,10 +357,10 @@ def root(_: None = Depends(_verify_api_key)) -> str:
     for k, v in risk.items():
         label = {"spent_cny": "今日已用(CNY)", "trade_count": "交易数", "circuit_breaker": "熔断"}.get(k, k)
         val = "是" if k == "circuit_breaker" and v else "否" if k == "circuit_breaker" else v
-        risk_html += f'<tr><td>{label}</td><td>{val}</td></tr>'
+        risk_html += f'<tr><td>{html.escape(str(label))}</td><td>{html.escape(str(val))}</td></tr>'
     pos_html = ""
     for p in positions[:10]:
-        pos_html += f'<tr><td>{p.get("symbol","?")}</td><td>{p.get("side","?")}</td><td>{p.get("qty","?")}</td><td>{p.get("entry_price","?")}</td></tr>'
+        pos_html += f'<tr><td>{html.escape(str(p.get("symbol","?")))}</td><td>{html.escape(str(p.get("side","?")))}</td><td>{html.escape(str(p.get("qty","?")))}</td><td>{html.escape(str(p.get("entry_price","?")))}</td></tr>'
     if not pos_html:
         pos_html = '<tr><td colspan="4">暂无持仓</td></tr>'
     return f"""<!DOCTYPE html>

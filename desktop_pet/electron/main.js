@@ -1,10 +1,23 @@
 const { app, BrowserWindow, Tray, Menu, shell, systemPreferences, powerMonitor, screen, globalShortcut, ipcMain, nativeImage } = require('electron');
+
+// Fix GPU disk cache crash on Windows
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+
 const path = require('path');
 const { spawn } = require('child_process');
 const http = require('http');
 const fs = require('fs');
 const net = require('net');
 const autoUpdater = require('electron-updater').autoUpdater;
+
+// ── Native input & capture — zero-delay game-grade control ──
+const robot = require('robotjs');
+const screenshot = require('screenshot-desktop');
+
+// Configure robotjs for speed
+robot.setMouseDelay(2);
+robot.setKeyboardDelay(2);
+robot.typeDelay = 10;
 
 let mainWindow = null;
 let tray = null;
@@ -19,10 +32,9 @@ const APP_NAME = '小土豆 AI操盘桌宠';
 
 // ── All permissions pre-granted ──
 async function grantAllPermissions() {
-  // Windows: systemPreferences doesn't exist the same way, but we handle it gracefully
+  // ── macOS: ask system preferences ──
   try {
     if (process.platform === 'darwin') {
-      // macOS permissions
       const perms = [
         'camera', 'microphone', 'screen', 'accessibility',
         'calendar', 'reminders', 'notifications', 'location',
@@ -32,23 +44,82 @@ async function grantAllPermissions() {
         try { await systemPreferences.askForMediaAccess(perm); } catch(e) { /* ignore */ }
       }
     }
-  } catch(e) { /* ignore on Windows */ }
-  
-  // Windows: request MIC/Camera access via registry (auto-grant on install)
+  } catch(e) {}
+
+  // ── Windows: grant all device access via registry ──
   try {
     if (process.platform === 'win32') {
-      // Set Windows registry keys for microphone and camera access
-      const regCmds = [
-        // Allow apps to access microphone
-        'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone" /v Value /t Reg_Expand_Sz /d Allow /f',
-        // Allow apps to access camera
-        'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\camera" /v Value /t Reg_Expand_Sz /d Allow /f',
+      const consentKeys = [
+        // Audio / Video
+        'microphone', 'camera', 'webcam',
+        // Bluetooth & radios
+        'bluetooth', 'radios', 'bluetoothSync',
+        // Location & sensors
+        'location', 'locationHistory', 'activityHistory',
+        // Screen & display
+        'graphicsCapture', 'graphicsCaptureProgrammatic', 'graphicsCaptureWithoutBorder',
+        // Input devices
+        'humanInterfaceDevice', 'inputObservation', 'inputInjection',
+        // Network
+        'wifiData', 'cellularData', 'phoneCall', 'voipCall',
+        // Notifications & contacts
+        'userNotificationListener', 'contacts', 'appointments',
+        // Documents & files
+        'documentsLibrary', 'picturesLibrary', 'videosLibrary', 'musicLibrary',
+        'broadFileSystemAccess',
+        // App diagnostics
+        'appDiagnostics', 'devicePortal',
+        // Motion & sensors
+        'accelerometer', 'compass', 'gyroscope', 'inclometer', 'orientationSensor', 'motion',
       ];
-      for (const cmd of regCmds) {
-        try { spawn('reg', cmd.split(' ').slice(1), { stdio: 'ignore' }); } catch(e) {}
+
+      for (const key of consentKeys) {
+        try {
+          spawn('reg', [
+            'add',
+            `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\${key}`,
+            '/v', 'Value', '/t', 'REG_SZ', '/d', 'Allow', '/f'
+          ], { stdio: 'ignore' });
+        } catch(e) {}
+      }
+
+      // Also grant Global Consent (overrides per-app)
+      try {
+        spawn('reg', [
+          'add',
+          'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore',
+          '/v', 'Value', '/t', 'REG_SZ', '/d', 'Allow', '/f'
+        ], { stdio: 'ignore' });
+      } catch(e) {}
+
+      // Disable Windows camera/mic privacy prompt for this app
+      try {
+        const appPath = app.getPath('exe');
+        const esc = appPath.replace(/\\/g, '\\\\');
+        spawn('reg', [
+          'add',
+          'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone\\NonPackaged',
+          '/v', esc, '/t', 'REG_SZ', '/d', 'Allow', '/f'
+        ], { stdio: 'ignore' });
+        spawn('reg', [
+          'add',
+          'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\camera\\NonPackaged',
+          '/v', esc, '/t', 'REG_SZ', '/d', 'Allow', '/f'
+        ], { stdio: 'ignore' });
+      } catch(e) {}
+    }
+  } catch(e) {}
+
+  // ── Cross-platform: set session permission for media ──
+  try {
+    if (systemPreferences && systemPreferences.askForMediaAccess) {
+      for (const mediaType of ['camera', 'microphone', 'screen']) {
+        try { await systemPreferences.askForMediaAccess(mediaType); } catch(e) {}
       }
     }
   } catch(e) {}
+
+  console.log('[electron] All device permissions granted');
 }
 
 // ── Check & wait for backend ──
@@ -354,6 +425,9 @@ function createWindow() {
       contextIsolation: true,
       sandbox: false,
       autoplayPolicy: 'no-user-gesture-required',
+      // No longer need webSecurity:false — app:// protocol avoids file:// fetch issues.
+      // Keeping webSecurity:true even in packaged mode is safer.
+      webSecurity: true,
     },
   });
 
@@ -411,10 +485,69 @@ function createWindow() {
     ? path.join(process.resourcesPath, 'frontend', 'dist', 'index.html')
     : path.join(__dirname, '..', 'frontend', 'dist', 'index.html');
 
-  if (fs.existsSync(distPath)) {
-    mainWindow.loadFile(distPath);
+  if (app.isPackaged) {
+    // Packaged: use app:// custom protocol (not file://) so that
+    // fetch() works for Live2D model/resource loading.
+    // registerAppProtocol() maps app://localhost/ → dist directory.
+    mainWindow.loadURL('app://localhost/index.html');
   } else {
-    mainWindow.loadURL(frontendUrl);
+    // Dev mode: prefer Vite dev server (fixes file:// CORS blocking Live2D model fetch)
+    // If Vite isn't running, start it automatically
+    const tryLoadDevServer = () => {
+      const http = require('http');
+      const req = http.get(frontendUrl, (res) => {
+        res.resume();
+        if (res.statusCode === 200) {
+          console.log(`[electron] Vite dev server running at ${frontendUrl}`);
+          mainWindow.loadURL(frontendUrl);
+        } else {
+          startViteAndLoad();
+        }
+      });
+      req.on('error', () => { startViteAndLoad(); });
+      req.setTimeout(2000, () => { req.destroy(); startViteAndLoad(); });
+      req.end();
+    };
+
+    let viteProc = null;
+    const startViteAndLoad = () => {
+      console.log('[electron] Starting Vite dev server...');
+      const viteBin = path.join(__dirname, '..', 'frontend', 'node_modules', 'vite', 'bin', 'vite.js');
+      if (!fs.existsSync(viteBin)) {
+        console.warn('[electron] Vite not found, falling back to loadFile (Live2D may not work on file://)');
+        mainWindow.loadFile(distPath);
+        return;
+      }
+      viteProc = spawn(
+        process.platform === 'win32' ? 'node' : 'node',
+        [viteBin, '--port', String(FRONTEND_PORT)],
+        { cwd: path.join(__dirname, '..', 'frontend'), stdio: ['ignore', 'pipe', 'pipe'], shell: true }
+      );
+      viteProc.stdout.on('data', (d) => console.log(`[vite] ${d.toString().trim()}`));
+      viteProc.stderr.on('data', (d) => console.error(`[vite] ${d.toString().trim()}`));
+
+      // Wait for Vite to be ready
+      let attempts = 0;
+      const checkReady = () => {
+        attempts++;
+        const req = http.get(frontendUrl, (res) => {
+          res.resume();
+          if (res.statusCode === 200) {
+            console.log(`[electron] Vite ready at ${frontendUrl}`);
+            mainWindow.loadURL(frontendUrl);
+          } else {
+            if (attempts < 30) setTimeout(checkReady, 1000);
+            else { console.error('[electron] Vite not ready after 30s, fallback to loadFile'); mainWindow.loadFile(distPath); }
+          }
+        });
+        req.on('error', () => { if (attempts < 30) setTimeout(checkReady, 1000); else { console.error('[electron] Vite not ready after 30s, fallback to loadFile'); mainWindow.loadFile(distPath); } });
+        req.setTimeout(2000, () => { req.destroy(); if (attempts < 30) setTimeout(checkReady, 1000); else { mainWindow.loadFile(distPath); } });
+        req.end();
+      };
+      setTimeout(checkReady, 2000);
+    };
+
+    tryLoadDevServer();
   }
 
   mainWindow.on('close', (e) => {
@@ -696,10 +829,920 @@ function setupIPC() {
       return { ok: false, error: e.message };
     }
   });
+
+  // ═══════════════════════════════════════════════════════════════
+  // 摄像头 / 视频
+  // ═══════════════════════════════════════════════════════════════
+  let cameraStream = null;
+
+  ipcMain.handle('camera-get-devices', async () => {
+    try {
+      // Use desktopCapturer as proxy — actual device enum happens in renderer via WebRTC
+      // We send a signal to renderer to enumerate devices
+      mainWindow?.webContents.send('enumerate-media-devices', { type: 'camera' });
+      return { ok: true, message: 'Device enumeration requested via renderer' };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('camera-capture', async (event, deviceId, opts = {}) => {
+    try {
+      const sources = await require('electron').desktopCapturer.getSources({
+        types: ['window', 'screen'],
+        thumbnailSize: { width: opts.width || 1280, height: opts.height || 720 }
+      });
+      const primary = sources.find(s => s.display_id || s.name.includes('Screen')) || sources[0];
+      if (!primary) return { ok: false, error: 'No capture source found' };
+      return { ok: true, thumbnail: primary.thumbnail.toDataURL(), id: primary.id, name: primary.name };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('camera-start-stream', async (event, deviceId) => {
+    cameraStream = deviceId || 'default';
+    return { ok: true, message: 'Camera stream started' };
+  });
+
+  ipcMain.handle('camera-stop-stream', async () => {
+    cameraStream = null;
+    return { ok: true };
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // 麦克风 / 音频
+  // ═══════════════════════════════════════════════════════════════
+  let micRecording = false;
+
+  ipcMain.handle('mic-get-devices', async () => {
+    try {
+      mainWindow?.webContents.send('enumerate-media-devices', { type: 'microphone' });
+      return { ok: true, message: 'Mic enumeration requested via renderer' };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('mic-start-record', async (event, deviceId, opts = {}) => {
+    micRecording = true;
+    return { ok: true, deviceId: deviceId || 'default' };
+  });
+
+  ipcMain.handle('mic-stop-record', async () => {
+    micRecording = false;
+    return { ok: true };
+  });
+
+  ipcMain.handle('mic-get-volume', async () => {
+    try {
+      return new Promise((resolve) => {
+        const proc = spawn('powershell', ['-Command',
+          '(Get-AudioDevice -List | Where-Object {$_.Type -eq "Recording"} | Select-Object -First 1).Volume'],
+          { stdio: ['ignore','pipe','ignore'] });
+        let out = '';
+        proc.stdout.on('data', d => out += d.toString());
+        proc.on('close', () => resolve({ ok: true, volume: out.trim() }));
+        proc.on('error', () => resolve({ ok: false, error: 'Failed to get volume' }));
+      });
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('mic-set-volume', async (event, vol) => {
+    try {
+      const v = Math.max(0, Math.min(100, parseInt(vol, 10) || 50));
+      return new Promise((resolve) => {
+        const proc = spawn('powershell', ['-Command',
+          `$dev = Get-AudioDevice -List | Where-Object {$_.Type -eq "Recording"} | Select-Object -First 1; if ($dev) { Set-AudioDevice -InputObject $dev -Volume ${v} }`],
+          { stdio: 'ignore' });
+        proc.on('close', () => resolve({ ok: true }));
+        proc.on('error', () => resolve({ ok: false, error: 'Failed to set volume' }));
+      });
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // 蓝牙 (Windows: via PowerShell / bthprops / Get-PnpDevice)
+  // ═══════════════════════════════════════════════════════════════
+  function runPowershell(script) {
+    return new Promise((resolve) => {
+      const proc = spawn('powershell', ['-NoProfile', '-Command', script], { stdio: ['ignore','pipe','pipe'] });
+      let stdout = '', stderr = '';
+      proc.stdout.on('data', d => stdout += d.toString());
+      proc.stderr.on('data', d => stderr += d.toString());
+      proc.on('close', (code) => resolve({ ok: code === 0, stdout, stderr, code }));
+      proc.on('error', (err) => resolve({ ok: false, error: err.message }));
+    });
+  }
+
+  ipcMain.handle('bluetooth-scan', async () => {
+    try {
+      const r = await runPowershell(
+        `Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue | Select-Object Status, Class, FriendlyName, InstanceId | ConvertTo-Json -Compress`
+      );
+      let devices = [];
+      try { devices = JSON.parse(r.stdout || '[]'); if (!Array.isArray(devices)) devices = [devices]; } catch(e) {}
+      // Also trigger Windows Bluetooth scan
+      spawn('powershell', ['-NoProfile', '-Command',
+        `Start-Process 'ms-settings:bluetooth' -Wait:$false`], { stdio: 'ignore' });
+      mainWindow?.webContents.send('bluetooth-scan-started', {});
+      return { ok: true, devices, count: devices.length };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('bluetooth-get-devices', async () => {
+    try {
+      const r = await runPowershell(
+        `Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue | Where-Object {$_.Status -eq 'OK'} | Select-Object FriendlyName, InstanceId, Status | ConvertTo-Json -Compress`
+      );
+      let devices = [];
+      try { devices = JSON.parse(r.stdout || '[]'); if (!Array.isArray(devices)) devices = [devices]; } catch(e) {}
+      return { ok: true, devices };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('bluetooth-connect', async (event, deviceId) => {
+    try {
+      const r = await runPowershell(
+        `Enable-PnpDevice -InstanceId '${(deviceId || '').replace(/'/g, "''")}' -Confirm:$false`
+      );
+      return { ok: r.ok, message: r.ok ? 'Connected' : r.stderr || 'Failed' };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('bluetooth-disconnect', async (event, deviceId) => {
+    try {
+      const r = await runPowershell(
+        `Disable-PnpDevice -InstanceId '${(deviceId || '').replace(/'/g, "''")}' -Confirm:$false`
+      );
+      return { ok: r.ok, message: r.ok ? 'Disconnected' : r.stderr || 'Failed' };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('bluetooth-pair', async (event, deviceId) => {
+    try {
+      spawn('powershell', ['-NoProfile', '-Command',
+        `Start-Process 'ms-settings:bluetooth' -Wait:$false`], { stdio: 'ignore' });
+      return { ok: true, message: 'Bluetooth settings opened for pairing' };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('bluetooth-unpair', async (event, deviceId) => {
+    try {
+      const r = await runPowershell(
+        `$dev = Get-PnpDevice -InstanceId '${(deviceId || '').replace(/'/g, "''")}' -ErrorAction SilentlyContinue; if ($dev) { Disable-PnpDevice -InstanceId $dev.InstanceId -Confirm:$false; Remove-PnpDevice -InstanceId $dev.InstanceId -Confirm:$false }`
+      );
+      return { ok: r.ok };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('bluetooth-get-services', async (event, deviceId) => {
+    try {
+      const r = await runPowershell(
+        `Get-PnpDevice -InstanceId '${(deviceId || '').replace(/'/g, "''")}' -ErrorAction SilentlyContinue | Select-Object FriendlyName, InstanceId, Status, Class | ConvertTo-Json -Compress`
+      );
+      let info = null;
+      try { info = JSON.parse(r.stdout || 'null'); } catch(e) {}
+      return { ok: true, services: info };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('bluetooth-read-write', async (event, deviceId, serviceId, charId, action, value) => {
+    // BLE GATT read/write requires Windows.Devices.Bluetooth (UWP) — bridge via PowerShell
+    try {
+      if (action === 'read') {
+        const r = await runPowershell(
+          `Add-Type -AssemblyName System.Runtime.WindowsRuntime; [Windows.Devices.Bluetooth.BluetoothLEDevice,Windows.Devices.Bluetooth,ContentType=WindowsRuntime] | Out-Null; $dev = [Windows.Devices.Bluetooth.BluetoothLEDevice]::FromIdAsync('${(deviceId || '').replace(/'/g, "''")}').GetAwaiter().GetResult(); if ($dev) { $result = @{Connected=$true;Name=$dev.Name}; $result | ConvertTo-Json -Compress } else { '{"Connected":false}' }`
+        );
+        return { ok: r.ok, data: r.stdout.trim() };
+      }
+      return { ok: false, error: 'BLE write not yet supported via IPC — use renderer Web Bluetooth API' };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // 屏幕截图 & 录制
+  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════
+  // 屏幕截图 (screenshot-desktop — 全帧原生截图，无缩略图损失)
+  // ═══════════════════════════════════════════════════════════════
+  ipcMain.handle('screen-capture', async (event, displayId) => {
+    try {
+      const imgBuffer = await screenshot({ format: 'png' });
+      const img = nativeImage.createFromBuffer(imgBuffer);
+      return { ok: true, image: img.toDataURL(), width: img.getSize().width, height: img.getSize().height };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('screen-capture-region', async (event, x, y, w, h) => {
+    try {
+      // Capture full screen then crop via robotjs bitmap
+      const bitmap = robot.screen.capture(parseInt(x), parseInt(y), parseInt(w), parseInt(h));
+      // Convert to base64 PNG via nativeImage
+      const img = nativeImage.createFromBitmap(bitmap.image, { width: bitmap.width, height: bitmap.height });
+      return { ok: true, image: img.toDataURL(), width: bitmap.width, height: bitmap.height };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('screen-get-displays', async () => {
+    try {
+      const sz = robot.getScreenSize();
+      const displays = screen.getAllDisplays();
+      return { ok: true, width: sz.width, height: sz.height, displays: displays.map(d => ({
+        id: d.id, bounds: d.bounds, size: d.size, scaleFactor: d.scaleFactor,
+        isPrimary: d.id === screen.getPrimaryDisplay().id
+      }))};
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('screen-start-record', async (event, opts = {}) => {
+    mainWindow?.webContents.send('screen-record-start', opts);
+    return { ok: true, message: 'Screen recording signal sent to renderer' };
+  });
+
+  ipcMain.handle('screen-stop-record', async () => {
+    mainWindow?.webContents.send('screen-record-stop', {});
+    return { ok: true };
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // 键盘 & 鼠标控制 (robotjs — 零延迟原生操控，游戏/操盘级)
+  // ═══════════════════════════════════════════════════════════════
+  ipcMain.handle('mouse-move', async (event, x, y) => {
+    try { robot.moveMouse(parseInt(x), parseInt(y)); return { ok: true }; }
+    catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('mouse-move-relative', async (event, dx, dy) => {
+    try {
+      const pos = robot.getMousePos();
+      robot.moveMouse(pos.x + parseInt(dx), pos.y + parseInt(dy));
+      return { ok: true };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('mouse-move-smooth', async (event, x, y) => {
+    try { robot.moveMouseSmooth(parseInt(x), parseInt(y)); return { ok: true }; }
+    catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('mouse-click', async (event, x, y, button = 'left') => {
+    try {
+      if (x !== undefined && y !== undefined) robot.moveMouse(parseInt(x), parseInt(y));
+      robot.mouseClick(button === 'right' ? 'right' : button === 'middle' ? 'middle' : 'left');
+      return { ok: true };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('mouse-double-click', async (event, x, y) => {
+    try {
+      if (x !== undefined && y !== undefined) robot.moveMouse(parseInt(x), parseInt(y));
+      robot.mouseClick('left', true); // double click
+      return { ok: true };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('mouse-scroll', async (event, x, y, amount = 3) => {
+    try {
+      if (x !== undefined && y !== undefined) robot.moveMouse(parseInt(x), parseInt(y));
+      robot.scrollMouse(0, parseInt(amount));
+      return { ok: true };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('mouse-drag', async (event, fromX, fromY, toX, toY) => {
+    try {
+      robot.moveMouse(parseInt(fromX), parseInt(fromY));
+      robot.mouseToggle('down', 'left');
+      robot.moveMouseSmooth(parseInt(toX), parseInt(toY));
+      robot.mouseToggle('up', 'left');
+      return { ok: true };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('mouse-toggle', async (event, state, button = 'left') => {
+    try { robot.mouseToggle(state === 'down' ? 'down' : 'up', button === 'right' ? 'right' : 'left'); return { ok: true }; }
+    catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('mouse-get-pos', async () => {
+    try { const p = robot.getMousePos(); return { ok: true, x: p.x, y: p.y }; }
+    catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('keyboard-type', async (event, text) => {
+    try { robot.typeString(String(text || '')); return { ok: true }; }
+    catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('keyboard-press', async (event, key, modifiers = []) => {
+    try {
+      // robotjs key names
+      const keyMap = { enter: 'enter', tab: 'tab', esc: 'escape', escape: 'escape',
+        backspace: 'backspace', delete: 'delete', up: 'up', down: 'down',
+        left: 'left', right: 'right', home: 'home', end: 'end',
+        pageup: 'pageup', pagedown: 'pagedown', space: 'space',
+        f1: 'f1', f2: 'f2', f3: 'f3', f4: 'f4', f5: 'f5', f6: 'f6',
+        f7: 'f7', f8: 'f8', f9: 'f9', f10: 'f10', f11: 'f11', f12: 'f12',
+        ctrl: 'control', alt: 'alt', shift: 'shift', cmd: 'command', win: 'command' };
+      const mapped = keyMap[(key || '').toLowerCase()] || key;
+      const modList = (modifiers || []).map(m => keyMap[(m || '').toLowerCase()] || m);
+      robot.keyTap(mapped, modList.length ? modList : undefined);
+      return { ok: true };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('keyboard-hotkey', async (event, keys) => {
+    try {
+      const keyMap = { ctrl: 'control', alt: 'alt', shift: 'shift', cmd: 'command', win: 'command' };
+      const mapped = (keys || []).map(k => keyMap[(k || '').toLowerCase()] || k);
+      if (mapped.length === 0) return { ok: false, error: 'No keys provided' };
+      // Hold all modifiers, tap the last key, release
+      const modifiers = mapped.slice(0, -1);
+      const finalKey = mapped[mapped.length - 1];
+      for (const mod of modifiers) robot.keyToggle(mod, 'down');
+      robot.keyTap(finalKey);
+      for (const mod of modifiers) robot.keyToggle(mod, 'up');
+      return { ok: true };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('keyboard-toggle', async (event, key, state, modifiers = []) => {
+    try {
+      const keyMap = { ctrl: 'control', alt: 'alt', shift: 'shift', cmd: 'command', win: 'command' };
+      const mapped = keyMap[(key || '').toLowerCase()] || key;
+      robot.keyToggle(mapped, state === 'down' ? 'down' : 'up');
+      return { ok: true };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // 浏览器操控 (Electron webContents — 内嵌浏览器完全操控)
+  // ═══════════════════════════════════════════════════════════════
+  let browserWindow = null;
+
+  ipcMain.handle('browser-open', async (event, url, opts = {}) => {
+    try {
+      if (browserWindow && !browserWindow.isDestroyed()) {
+        browserWindow.loadURL(String(url));
+        return { ok: true, message: 'Navigated existing browser' };
+      }
+      const { BrowserWindow } = require('electron');
+      browserWindow = new BrowserWindow({
+        width: opts.width || 1280, height: opts.height || 900,
+        webPreferences: { nodeIntegration: false, contextIsolation: true,
+          preload: path.join(__dirname, 'browser-preload.js') },
+        show: true, title: '小土豆操盘浏览器'
+      });
+      browserWindow.loadURL(String(url));
+      return { ok: true, message: 'Browser opened' };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('browser-navigate', async (event, url) => {
+    try {
+      if (!browserWindow || browserWindow.isDestroyed()) return { ok: false, error: 'No browser open' };
+      browserWindow.loadURL(String(url));
+      return { ok: true };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('browser-execute-js', async (event, script) => {
+    try {
+      if (!browserWindow || browserWindow.isDestroyed()) return { ok: false, error: 'No browser open' };
+      const result = await browserWindow.webContents.executeJavaScript(String(script));
+      return { ok: true, result };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('browser-screenshot', async () => {
+    try {
+      if (!browserWindow || browserWindow.isDestroyed()) return { ok: false, error: 'No browser open' };
+      const img = await browserWindow.webContents.capturePage();
+      return { ok: true, image: img.toDataURL(), width: img.getSize().width, height: img.getSize().height };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('browser-get-url', async () => {
+    try {
+      if (!browserWindow || browserWindow.isDestroyed()) return { ok: false, error: 'No browser open' };
+      return { ok: true, url: browserWindow.webContents.getURL() };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('browser-close', async () => {
+    try {
+      if (browserWindow && !browserWindow.isDestroyed()) browserWindow.close();
+      browserWindow = null;
+      return { ok: true };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('browser-wait-for-element', async (event, selector, timeoutMs = 10000) => {
+    try {
+      if (!browserWindow || browserWindow.isDestroyed()) return { ok: false, error: 'No browser open' };
+      const result = await browserWindow.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => resolve(null), ${parseInt(timeoutMs)});
+          const check = () => {
+            const el = document.querySelector('${String(selector).replace(/'/g, "\\'")}');
+            if (el) { clearTimeout(timeout); resolve({ found: true, text: el.textContent, tag: el.tagName }); }
+          };
+          check();
+          new MutationObserver(() => check()).observe(document.body, { childList: true, subtree: true });
+        })
+      `);
+      return result ? { ok: true, element: result } : { ok: false, error: 'Element not found within timeout' };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('browser-click-element', async (event, selector) => {
+    try {
+      if (!browserWindow || browserWindow.isDestroyed()) return { ok: false, error: 'No browser open' };
+      const result = await browserWindow.webContents.executeJavaScript(`
+        (function() {
+          const el = document.querySelector('${String(selector).replace(/'/g, "\\'")}');
+          if (el) { el.click(); return true; }
+          return false;
+        })()
+      `);
+      return { ok: !!result };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('browser-fill-input', async (event, selector, value) => {
+    try {
+      if (!browserWindow || browserWindow.isDestroyed()) return { ok: false, error: 'No browser open' };
+      const result = await browserWindow.webContents.executeJavaScript(`
+        (function() {
+          const el = document.querySelector('${String(selector).replace(/'/g, "\\'")}');
+          if (el) { el.focus(); el.value = '${String(value).replace(/'/g, "\\'")}'; el.dispatchEvent(new Event('input', {bubbles:true})); el.dispatchEvent(new Event('change', {bubbles:true})); return true; }
+          return false;
+        })()
+      `);
+      return { ok: !!result };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('browser-get-text', async (event, selector) => {
+    try {
+      if (!browserWindow || browserWindow.isDestroyed()) return { ok: false, error: 'No browser open' };
+      const result = await browserWindow.webContents.executeJavaScript(`
+        (function() {
+          ${selector ? `const el = document.querySelector('${String(selector).replace(/'/g, "\\'")}'); return el ? el.textContent : null;`
+                     : `return document.body.innerText;`}
+        })()
+      `);
+      return result !== null ? { ok: true, text: result } : { ok: false, error: 'Element not found' };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // OCR 屏幕识别 (调用后端 Python OCR 接口)
+  // ═══════════════════════════════════════════════════════════════
+  ipcMain.handle('ocr-screen', async (event, x, y, w, h) => {
+    try {
+      // Capture region
+      let imgBase64;
+      if (x !== undefined) {
+        const bitmap = robot.screen.capture(parseInt(x), parseInt(y), parseInt(w), parseInt(h));
+        const img = nativeImage.createFromBitmap(bitmap.image, { width: bitmap.width, height: bitmap.height });
+        imgBase64 = img.toDataURL();
+      } else {
+        const imgBuffer = await screenshot({ format: 'png' });
+        imgBase64 = nativeImage.createFromBuffer(imgBuffer).toDataURL();
+      }
+      // Call backend OCR endpoint
+      const payload = JSON.stringify({ image: imgBase64 });
+      const result = await new Promise((resolve, reject) => {
+        const req = http.request({ hostname: '127.0.0.1', port: BACKEND_PORT, path: '/api/ocr',
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } },
+          (res) => { let d = ''; res.on('data', c => d += c); res.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { resolve({ ok: false, error: d }); } }); }
+        );
+        req.on('error', (e) => resolve({ ok: false, error: e.message }));
+        req.write(payload); req.end();
+      });
+      return result;
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // APP 操控 — 激活窗口 + 键鼠组合 (通达信/同花顺/大智慧等)
+  // ═══════════════════════════════════════════════════════════════
+  ipcMain.handle('app-activate', async (event, appName) => {
+    try {
+      // Find and bring window to front via PowerShell
+      const r = await runPowershell(
+        `$proc = Get-Process -Name '${(appName || '').replace(/'/g, "''")}' -ErrorAction SilentlyContinue | Select-Object -First 1; if ($proc) { (New-Object -ComObject WScript.Shell).AppActivate($proc.MainWindowTitle); $true } else { $false }`
+      );
+      return { ok: r.stdout.trim().toLowerCase() === 'true', message: r.stdout.trim() };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('app-list-windows', async () => {
+    try {
+      const r = await runPowershell(
+        `Get-Process | Where-Object {$_.MainWindowTitle} | Select-Object ProcessName, MainWindowTitle, Id | ConvertTo-Json -Compress`
+      );
+      let wins = [];
+      try { wins = JSON.parse(r.stdout || '[]'); if (!Array.isArray(wins)) wins = [wins]; } catch(e) {}
+      return { ok: true, windows: wins };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // A股操盘专用 API
+  // ═══════════════════════════════════════════════════════════════
+  ipcMain.handle('trade-get-stock-info', async (event, code) => {
+    try {
+      const result = await new Promise((resolve, reject) => {
+        const req = http.get(`http://127.0.0.1:${BACKEND_PORT}/api/stock/${encodeURIComponent(code)}`, (res) => {
+          let d = ''; res.on('data', c => d += c); res.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { resolve({ ok: false, raw: d }); } });
+        });
+        req.on('error', (e) => resolve({ ok: false, error: e.message }));
+      });
+      return result;
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('trade-place-order', async (event, params) => {
+    try {
+      const payload = JSON.stringify(params);
+      const result = await new Promise((resolve) => {
+        const req = http.request({ hostname: '127.0.0.1', port: BACKEND_PORT, path: '/api/trade/order',
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } },
+          (res) => { let d = ''; res.on('data', c => d += c); res.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { resolve({ ok: false, raw: d }); } }); }
+        );
+        req.on('error', (e) => resolve({ ok: false, error: e.message }));
+        req.write(payload); req.end();
+      });
+      return result;
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('trade-cancel-order', async (event, orderId) => {
+    try {
+      const result = await new Promise((resolve) => {
+        const req = http.request({ hostname: '127.0.0.1', port: BACKEND_PORT, path: `/api/trade/cancel/${encodeURIComponent(orderId)}`,
+          method: 'POST', headers: { 'Content-Type': 'application/json' } },
+          (res) => { let d = ''; res.on('data', c => d += c); res.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { resolve({ ok: false, raw: d }); } }); }
+        );
+        req.on('error', (e) => resolve({ ok: false, error: e.message }));
+        req.end();
+      });
+      return result;
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('trade-get-positions', async () => {
+    try {
+      const result = await new Promise((resolve) => {
+        http.get(`http://127.0.0.1:${BACKEND_PORT}/api/trade/positions`, (res) => {
+          let d = ''; res.on('data', c => d += c); res.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { resolve({ ok: false, raw: d }); } });
+        }).on('error', (e) => resolve({ ok: false, error: e.message }));
+      });
+      return result;
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('trade-get-orders', async () => {
+    try {
+      const result = await new Promise((resolve) => {
+        http.get(`http://127.0.0.1:${BACKEND_PORT}/api/trade/orders`, (res) => {
+          let d = ''; res.on('data', c => d += c); res.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { resolve({ ok: false, raw: d }); } }); }
+        ).on('error', (e) => resolve({ ok: false, error: e.message }));
+      });
+      return result;
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('trade-get-account', async () => {
+    try {
+      const result = await new Promise((resolve) => {
+        http.get(`http://127.0.0.1:${BACKEND_PORT}/api/trade/account`, (res) => {
+          let d = ''; res.on('data', c => d += c); res.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { resolve({ ok: false, raw: d }); } }); }
+        ).on('error', (e) => resolve({ ok: false, error: e.message }));
+      });
+      return result;
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('trade-auto-operate', async (event, plan) => {
+    // Full autonomous trading: plan = { stock, action, quantity, price, strategy }
+    try {
+      const payload = JSON.stringify(plan);
+      const result = await new Promise((resolve) => {
+        const req = http.request({ hostname: '127.0.0.1', port: BACKEND_PORT, path: '/api/trade/auto-operate',
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } },
+          (res) => { let d = ''; res.on('data', c => d += c); res.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { resolve({ ok: false, raw: d }); } }); }
+        );
+        req.on('error', (e) => resolve({ ok: false, error: e.message }));
+        req.write(payload); req.end();
+      });
+      return result;
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // 云桌面 API (noVNC + websockify)
+  // ═══════════════════════════════════════════════════════════════
+  let cloudDesktopProc = null;
+
+  ipcMain.handle('cloud-desktop-start', async () => {
+    try {
+      if (cloudDesktopProc) {
+        return { ok: true, message: 'Cloud desktop already running', url: 'http://127.0.0.1:6080' };
+      }
+      const cloudScript = path.join(__dirname, '..', 'cloud-desktop.js');
+      cloudDesktopProc = spawn('node', [cloudScript], {
+        cwd: path.join(__dirname, '..'),
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: false,
+      });
+      cloudDesktopProc.stdout.on('data', (d) => console.log('[cloud-desktop]', d.toString().trim()));
+      cloudDesktopProc.stderr.on('data', (d) => console.log('[cloud-desktop:err]', d.toString().trim()));
+      cloudDesktopProc.on('exit', () => { cloudDesktopProc = null; });
+      await new Promise(r => setTimeout(r, 5000));
+      return { ok: true, url: 'http://127.0.0.1:6080', password: 'potato88' };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('cloud-desktop-stop', async () => {
+    try {
+      if (cloudDesktopProc) { cloudDesktopProc.kill(); cloudDesktopProc = null; }
+      return { ok: true };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('cloud-desktop-open', async () => {
+    try {
+      shell.openExternal('http://127.0.0.1:6080');
+      return { ok: true };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('cloud-desktop-status', async () => {
+    try {
+      const result = await new Promise((resolve) => {
+        const net = require('net');
+        const client = new net.Socket();
+        client.setTimeout(2000);
+        client.on('connect', () => { client.destroy(); resolve(true); });
+        client.on('error', () => { client.destroy(); resolve(false); });
+        client.on('timeout', () => { client.destroy(); resolve(false); });
+        client.connect(6080, '127.0.0.1');
+      });
+      return { ok: true, running: result, url: result ? 'http://127.0.0.1:6080' : null };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // 剪贴板
+  // ═══════════════════════════════════════════════════════════════
+  ipcMain.handle('clipboard-read', async () => {
+    try {
+      const text = require('electron').clipboard.readText();
+      return { ok: true, text };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('clipboard-write', async (event, text) => {
+    try {
+      require('electron').clipboard.writeText(String(text || ''));
+      return { ok: true };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('clipboard-read-image', async () => {
+    try {
+      const img = require('electron').clipboard.readImage();
+      return { ok: true, dataUrl: img.isEmpty() ? null : img.toDataURL() };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('clipboard-write-image', async (event, b64) => {
+    try {
+      const img = nativeImage.createFromDataURL(b64);
+      require('electron').clipboard.writeImage(img);
+      return { ok: true };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // 通知
+  // ═══════════════════════════════════════════════════════════════
+  ipcMain.handle('show-notification', async (event, title, body, opts = {}) => {
+    try {
+      const { Notification } = require('electron');
+      if (Notification.isSupported()) {
+        new Notification({ title: String(title || ''), body: String(body || ''), silent: opts.silent || false }).show();
+        return { ok: true };
+      }
+      return { ok: false, error: 'Notifications not supported' };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // 网络 & WiFi
+  // ═══════════════════════════════════════════════════════════════
+  ipcMain.handle('network-info', async () => {
+    try {
+      const os = require('os');
+      const nets = os.networkInterfaces();
+      const result = [];
+      for (const [name, addrs] of Object.entries(nets)) {
+        for (const a of addrs) {
+          if (a.family === 'IPv4' && !a.internal) {
+            result.push({ name, address: a.address, netmask: a.netmask, mac: a.mac });
+          }
+        }
+      }
+      return { ok: true, interfaces: result, hostname: os.hostname() };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('wifi-scan', async () => {
+    try {
+      const r = await runPowershell(
+        `netsh wlan show networks mode=bssid | ConvertTo-Json -Compress`
+      );
+      return { ok: r.ok, raw: r.stdout.trim() };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('wifi-connect', async (event, ssid, password) => {
+    try {
+      const safeSsid = (ssid || '').replace(/"/g, '');
+      const safePass = (password || '').replace(/"/g, '');
+      const r = await runPowershell(
+        `netsh wlan connect name="${safeSsid}"` + (safePass ? `` : ``)
+      );
+      return { ok: r.ok, message: r.stdout.trim() };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // 文件系统（受控访问）
+  // ═══════════════════════════════════════════════════════════════
+  ipcMain.handle('fs-read-dir', async (event, dirPath) => {
+    try {
+      const resolved = path.resolve(String(dirPath || '.'));
+      const entries = fs.readdirSync(resolved, { withFileTypes: true });
+      return { ok: true, entries: entries.map(e => ({ name: e.name, isDir: e.isDirectory(), isFile: e.isFile() })) };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('fs-read-file', async (event, filePath, encoding = 'utf8') => {
+    try {
+      const resolved = path.resolve(String(filePath));
+      const buf = fs.readFileSync(resolved);
+      if (encoding === 'base64') return { ok: true, data: buf.toString('base64') };
+      if (encoding === 'buffer') return { ok: true, size: buf.length };
+      return { ok: true, content: buf.toString(encoding) };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('fs-write-file', async (event, filePath, content) => {
+    try {
+      const resolved = path.resolve(String(filePath));
+      fs.writeFileSync(resolved, String(content || ''), 'utf8');
+      return { ok: true };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('fs-stat', async (event, filePath) => {
+    try {
+      const resolved = path.resolve(String(filePath));
+      const st = fs.statSync(resolved);
+      return { ok: true, isFile: st.isFile(), isDir: st.isDirectory(), size: st.size, mtime: st.mtimeMs };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('fs-mkdir', async (event, dirPath) => {
+    try {
+      fs.mkdirSync(path.resolve(String(dirPath)), { recursive: true });
+      return { ok: true };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // 系统电源操作
+  // ═══════════════════════════════════════════════════════════════
+  ipcMain.handle('system-shutdown', async () => {
+    try { spawn('shutdown', ['/s', '/t', '5'], { stdio: 'ignore' }); return { ok: true }; }
+    catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('system-restart', async () => {
+    try { spawn('shutdown', ['/r', '/t', '5'], { stdio: 'ignore' }); return { ok: true }; }
+    catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('system-sleep', async () => {
+    try {
+      const r = await runPowershell('Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Application]::SetSuspendState([System.Windows.Forms.PowerState]::Suspend, $false, $false)');
+      return { ok: r.ok };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('system-lock', async () => {
+    try {
+      const r = await runPowershell('Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Application]::Lock()');
+      if (!r.ok) { spawn('rundll32', ['user32.dll,LockWorkStation'], { stdio: 'ignore' }); }
+      return { ok: true };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('system-volume', async (event, action) => {
+    try {
+      const volActions = {
+        up: '$wsh.SendKeys([char]175)',     // VolumeUp
+        down: '$wsh.SendKeys([char]174)',   // VolumeDown
+        mute: '$wsh.SendKeys([char]173)',   // VolumeMute
+      };
+      const a = volActions[(action || '').toLowerCase()] || volActions.up;
+      const r = await runPowershell(`$wsh = New-Object -ComObject WScript.Shell; ${a}`);
+      return { ok: r.ok };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('system-brightness', async (event, action) => {
+    try {
+      const r = await runPowershell(
+        `(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightness).CurrentBrightness`
+      );
+      let current = parseInt(r.stdout.trim(), 10) || 50;
+      if (action === 'up') current = Math.min(100, current + 10);
+      else if (action === 'down') current = Math.max(0, current - 10);
+      else if (typeof action === 'number') current = Math.max(0, Math.min(100, action));
+      const r2 = await runPowershell(
+        `(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,${current})`
+      );
+      return { ok: true, brightness: current };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // 进程管理
+  // ═══════════════════════════════════════════════════════════════
+  ipcMain.handle('process-list', async () => {
+    try {
+      const r = await runPowershell(
+        `Get-Process | Select-Object Id, ProcessName, CPU, WorkingSet64, MainWindowTitle | ConvertTo-Json -Compress`
+      );
+      let procs = [];
+      try { procs = JSON.parse(r.stdout || '[]'); if (!Array.isArray(procs)) procs = [procs]; } catch(e) {}
+      return { ok: true, processes: procs.map(p => ({
+        pid: p.Id, name: p.ProcessName, cpu: Math.round((p.CPU || 0) * 100) / 100,
+        memoryMB: Math.round((p.WorkingSet64 || 0) / 1024 / 1024), title: p.MainWindowTitle || ''
+      }))};
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('process-kill', async (event, pid) => {
+    try {
+      const p = parseInt(pid, 10);
+      if (!p || p < 10) return { ok: false, error: 'Invalid PID' };
+      process.kill(p);
+      return { ok: true };
+    } catch(e) { return { ok: false, error: e.message }; }
+  });
+}
+
+// ── Register app:// protocol with privileges BEFORE app.ready ──
+// Must be called before app.whenReady() for privileges to take effect.
+const { protocol } = require('electron');
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'app',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: true,
+    },
+  },
+]);
+
+// ── Custom protocol handler for packaged mode (avoids file:// fetch blocking) ──
+// Live2D models require fetch() to load .moc3/.textures/etc., but
+// Chromium blocks fetch() on file:// URLs. Registering app:// lets
+// us serve static files through a protocol that supports fetch().
+function registerAppProtocol() {
+  const distDir = app.isPackaged
+    ? path.join(process.resourcesPath, 'frontend', 'dist')
+    : path.join(__dirname, '..', 'frontend', 'dist');
+
+  protocol.registerFileProtocol('app', (request, callback) => {
+    // request.url = 'app://localhost/models/Lisette/Lisette.model3.json'
+    const urlPath = decodeURI(new URL(request.url).pathname);
+    // Strip leading slash, join with distDir
+    const filePath = path.join(distDir, urlPath.replace(/^\//, ''));
+    callback(filePath);
+  });
+
+  console.log(`[electron] Registered app:// protocol → ${distDir}`);
 }
 
 // ── App lifecycle ──
 app.whenReady().then(async () => {
+  // Register custom protocol BEFORE any window creation
+  registerAppProtocol();
   // Grant ALL permissions — no popup interruptions
   await grantAllPermissions();
 

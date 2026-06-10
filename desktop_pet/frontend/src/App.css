@@ -58,6 +58,12 @@
   pointer-events: none;
 }
 
+/* Live2D canvas 必须可见且能接收鼠标事件（眨眼追踪等） */
+.pet-layer .live2d-container canvas {
+  pointer-events: auto !important;
+  -webkit-app-region: no-drag;
+}
+
 /* 字幕 */
 .pet-layer .subtitles {
   position: absolute;
@@ -129,31 +135,19 @@
   text-shadow: 0 0 20px rgba(255,82,82,0.4);
 }
 
-/* 胸口隐形触摸区 — 看不见但能点 */
+/* 胸口隐形触摸区 — 看不见但能点，召唤/关闭对话框 */
 .pet-tap-zone {
   position: absolute;
-  bottom: 34%;
-  right: 18%;
-  width: 120px;
-  height: 140px;
+  bottom: 38%;
+  right: 20%;
+  width: 100px;
+  height: 120px;
   border-radius: 50%;
   z-index: 55;
   pointer-events: auto;
   -webkit-app-region: no-drag;
-  cursor: pointer;
-  /* debug: background: rgba(255,0,0,0.1); */
-}
-
-/* 点桌宠提示 */
-.tap-hint {
-  position: absolute;
-  bottom: 22%;
-  right: 16%;
-  color: rgba(255,255,255,0.35);
-  font-size: 13px;
-  pointer-events: none;
-  z-index: 50;
-  animation: soft-pulse 2s ease-in-out infinite;
+  cursor: default;
+  /* 完全不可见，只有点胸口才有效 */
 }
 
 /* ── 聊天浮窗 ── 左侧 */

@@ -19,17 +19,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import math
-import re
 import uuid
 from datetime import datetime, timezone
-from decimal import Decimal
 from typing import Any
 
 import httpx
 
 from potato.config import load_settings
-from potato.llm import chat, research, analyze, achat, aresearch, aanalyze
+from potato.llm import achat
 from potato.eastmoney import (
     EastMoneyClient,
     analyze_sentiment,
@@ -194,7 +191,7 @@ async def fetch_realtime_quote(symbol: str, platform: str = "eastmoney") -> dict
         market = "0"
     else:
         market = "1"
-    url = f"https://push2.eastmoney.com/api/qt/stock/get"
+    url = "https://push2.eastmoney.com/api/qt/stock/get"
     params = {
         "secid": f"{market}.{symbol}",
         "fields": "f43,f44,f45,f46,f47,f48,f50,f51,f52,f55,f57,f58,f60,f116,f117,f162,f170",
@@ -314,7 +311,7 @@ def _build_technical_context(klines: list[dict], quote: dict | None) -> str:
 async def _gather_eastmoney_context(symbols: list[str]) -> str:
     """Gather EastMoney AI SaaS data for analysis enrichment."""
     blocks = []
-    em = EastMoneyClient()
+    EastMoneyClient()
 
     try:
         for symbol in symbols[:5]:

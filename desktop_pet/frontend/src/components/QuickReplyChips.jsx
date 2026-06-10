@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
+import PropTypes from 'prop-types';
 
 const SUGGESTIONS_MAP = {
   '行情': [
@@ -87,3 +88,8 @@ export default function QuickReplyChips({ onSend, lastMessageType }) {
     </div>
   );
 }
+
+QuickReplyChips.propTypes = {
+  onSend: PropTypes.func,
+  lastMessageType: PropTypes.string
+};

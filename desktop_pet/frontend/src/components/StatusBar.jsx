@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
+import PropTypes from 'prop-types';
 
 export default function StatusBar({ systemStatus, connected, currentModel, lang = 'zh' }) {
   const [time, setTime] = useState(new Date());
@@ -47,3 +48,15 @@ export default function StatusBar({ systemStatus, connected, currentModel, lang 
     </div>
   );
 }
+
+StatusBar.propTypes = {
+  systemStatus: PropTypes.shape({
+      uptime_seconds: PropTypes.any,
+      data_sources: PropTypes.any
+    }),
+  connected: PropTypes.bool,
+  currentModel: PropTypes.shape({
+      split: PropTypes.any
+    }),
+  lang: PropTypes.string
+};

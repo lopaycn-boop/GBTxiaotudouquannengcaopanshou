@@ -18,7 +18,7 @@ const NOTIFY_EVENTS = {
   trade_review: (p) => ({ title: '复盘完成', body: `${p.total_trades || 0}笔 胜率${p.win_rate || 0}%` }),
 };
 
-export function useDesktopNotification(sendPacket) {
+export function useDesktopNotification(_sendPacket) {
   const askedRef = useRef(false);
   const permittedRef = useRef(false);
 
@@ -52,7 +52,7 @@ export function useDesktopNotification(sendPacket) {
       };
       setTimeout(() => n.close(), 8000);
       return n;
-    } catch (e) {
+    } catch (_e) {
       return null;
     }
   }, []);

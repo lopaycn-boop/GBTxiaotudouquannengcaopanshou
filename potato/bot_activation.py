@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import httpx
 
 from potato.config import load_settings
-from potato.notifications import BotNotifier, is_live_secret, upsert_bot_secret
+from potato.notifications import BotNotifier, is_live_secret, upsert_bot_secret, get_bot_secret
 
 
 def feishu_tenant_token(app_id: str, app_secret: str, api_base: str) -> dict[str, Any]:
@@ -43,7 +42,16 @@ def activate_bots(*, send_test: bool = True) -> dict[str, Any]:
             discover = BotNotifier().telegram_discover_chat_id()
             result["steps"].append({"telegram_discover": discover})
             if discover.get("ok"):
-                upsert_bot_secret("TELEGRAM_CHAT_ID", discover["chat_id"])
+                existing_chat_id = get_bot_secret("TELEGRAM_CHAT_ID")
+                new_chat_id = discover["chat_id"]
+                if existing_chat_id and str(existing_chat_id) != str(new_chat_id):
+                    import logging as _logging
+                    _logging.getLogger("potato.bot_activation").warning(
+                        "TELEGRAM_CHAT_ID already set to %s, refusing overwrite with %s",
+                        existing_chat_id, new_chat_id,
+                    )
+                else:
+                    upsert_bot_secret("TELEGRAM_CHAT_ID", new_chat_id)
         runner = start_telegram_runner()
         result["steps"].append({"telegram_runner": runner})
         me = BotNotifier().telegram_get_me()

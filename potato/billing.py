@@ -31,21 +31,19 @@ Crypto wallet:
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import sqlite3
 import base64
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
-from pathlib import Path
 from typing import Any
 
-import qrcode
 from io import BytesIO
 
-logger = logging.getLogger("potato.billing")
 from potato.paths import DATA_DIR
+
+logger = logging.getLogger("potato.billing")
 
 DB_PATH = DATA_DIR / "billing.db"
 
@@ -393,7 +391,7 @@ class BillingManager:
         lines.append(f"\n💰 账户余额: ¥{wallet['remaining_cny']:.2f}")
         lines.append(f"📊 30天使用: 入{usage['total_tokens_in']} 出{usage['total_tokens_out']} 费用¥{usage['total_all_cny']:.2f}")
         if needs_payment:
-            lines.append(f"\n💡 说\"续费\"或点🔄续费按钮即可续费")
+            lines.append("\n💡 说\"续费\"或点🔄续费按钮即可续费")
 
         return {
             "providers": safe_providers,
@@ -468,9 +466,9 @@ class BillingManager:
             "balance_sufficient": balance_sufficient,
             "items": renewal_items,
             "payment_note": (
-                f"余额充足，已自动续费！"
+                "余额充足，已自动续费！"
                 if balance_sufficient
-                else f"请向下方地址支付 USDT-TRC20，到账后说\"已付款\"确认"
+                else "请向下方地址支付 USDT-TRC20，到账后说\"已付款\"确认"
             ),
         }
 
@@ -515,6 +513,10 @@ class BillingManager:
         if amount_cny > 0:
             qr_data += f"?amount={amount_cny}&token=USDT-TRC20"
 
+        try:
+            import qrcode
+        except ImportError:
+            return "QR码生成需要qrcode模块: pip install qrcode"
         img = qrcode.make(qr_data)
         buf = BytesIO()
         img.save(buf, format="PNG")

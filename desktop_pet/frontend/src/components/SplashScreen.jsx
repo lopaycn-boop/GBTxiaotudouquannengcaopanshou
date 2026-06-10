@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import PropTypes from 'prop-types';
 
 const SPLASH_STAGES = [
   { id: 'init', label: '正在初始化...', icon: '🥔' },
@@ -57,3 +58,8 @@ export default function SplashScreen({ stage = 'init', progress = 0 }) {
     </div>
   );
 }
+
+SplashScreen.propTypes = {
+  stage: PropTypes.number,
+  progress: PropTypes.number
+};

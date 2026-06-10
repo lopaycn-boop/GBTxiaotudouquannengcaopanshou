@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import { useMemo } from 'react';
+import PropTypes from 'prop-types';
 
 const POSITIONS = [
   { symbol: '000001', name: '平安银行', shares: 500, cost: 12.50 },
@@ -15,7 +16,7 @@ export default function PortfolioDashboard({ positions: externalPositions, price
   const prices = externalPrices || MOCK_PRICES;
 
   const totalCost = useMemo(() => positions.reduce((s, p) => s + p.shares * p.cost, 0), [positions]);
-  const totalValue = useMemo(() => positions.reduce((s, p) => s + p.shares * (prices[p.symbol] || p.cost), 0), [positions]);
+  const totalValue = useMemo(() => positions.reduce((s, p) => s + p.shares * (prices[p.symbol, prices] || p.cost), 0), [positions]);
   const totalPnl = totalValue - totalCost;
   const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost * 100) : 0;
 
@@ -96,3 +97,9 @@ export default function PortfolioDashboard({ positions: externalPositions, price
 }
 
 let hoverIdx = -1;
+
+PortfolioDashboard.propTypes = {
+  positions: PropTypes.array,
+  prices: PropTypes.array,
+  lang: PropTypes.string
+};

@@ -1,5 +1,5 @@
-import React from 'react';
 import useNotificationFilter from '../hooks/useNotificationFilter';
+import PropTypes from 'prop-types';
 
 export default function NotifFilterPanel({ lang = 'zh' }) {
   const { filters, toggle, levels } = useNotificationFilter();
@@ -39,3 +39,7 @@ export default function NotifFilterPanel({ lang = 'zh' }) {
     </div>
   );
 }
+
+NotifFilterPanel.propTypes = {
+  lang: PropTypes.string
+};

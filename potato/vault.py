@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import json
 import logging
 import os
 import platform
@@ -97,13 +96,12 @@ def _get_vault_key() -> bytes:
 
     Priority:
     1. VAULT_ENCRYPTION_KEY env var — for production (set in Zeabur env)
-    2. Machine fingerprint + salt file — for desktop (local dev)
+    2. OS keyring + salt file — for desktop (local dev)
 
     On production servers (Zeabur), VAULT_ENCRYPTION_KEY MUST be set to a stable
     value. Without it, container rebuilds change the hostname and make all
     previously encrypted data undecryptable.
     """
-    from pathlib import Path
 
     env_key = os.getenv("VAULT_ENCRYPTION_KEY", "").strip()
     if env_key:
@@ -125,17 +123,52 @@ def _get_vault_key() -> bytes:
             "deployment environment, e.g. Zeabur env vars."
         )
 
-    from potato.paths import DATA_DIR as _DATA_DIR
-    salt_path = _DATA_DIR / ".vault_salt"
+    # --- Desktop: OS keyring + independent salt ---
+    from potato.paths import DATA_DIR as _DATA_DIR, get_secure_config_dir
+
+    # Salt: stored in secure config dir (separate from DB)
+    secure_dir = get_secure_config_dir()
+    salt_path = secure_dir / ".vault_salt"
+    # Auto-migrate from old location
+    old_salt_path = _DATA_DIR / ".vault_salt"
+    if not salt_path.exists() and old_salt_path.exists():
+        salt = old_salt_path.read_bytes()
+        salt_path.write_bytes(salt)
+        try:
+            old_salt_path.unlink()
+            logger.info("Migrated vault salt from %s to %s", old_salt_path, salt_path)
+        except Exception:
+            logger.warning("Could not remove old salt file at %s", old_salt_path)
     if salt_path.exists():
         salt = salt_path.read_bytes()
     else:
         salt = os.urandom(32)
-        salt_path.parent.mkdir(parents=True, exist_ok=True)
         salt_path.write_bytes(salt)
 
-    machine_id = f"{platform.node()}-{os.getenv('USER', os.getenv('USERNAME', 'unknown'))}"
-    return hashlib.pbkdf2_hmac("sha256", machine_id.encode(), salt, 200_000)
+    # Key source: OS keyring (Windows DPAPI / macOS Keychain / Linux Secret Service)
+    try:
+        import keyring as _keyring
+        SERVICE_NAME = "potato-desktop-pet"
+        KEY_NAME = "vault-master-key"
+        stored = _keyring.get_password(SERVICE_NAME, KEY_NAME)
+        if stored:
+            master_key = stored.encode()
+        else:
+            master_key = os.urandom(32).hex()
+            _keyring.set_password(SERVICE_NAME, KEY_NAME, master_key)
+            master_key = master_key.encode()
+        logger.debug("Vault key derived from OS keyring")
+    except ImportError:
+        logger.warning(
+            "keyring package not installed — falling back to machine fingerprint for "
+            "vault key derivation. This is less secure. Install with: pip install keyring"
+        )
+        master_key = f"{platform.node()}-{os.getenv('USER', os.getenv('USERNAME', 'unknown'))}".encode()
+    except Exception as exc:
+        logger.warning("OS keyring unavailable (%s) — falling back to machine fingerprint", exc)
+        master_key = f"{platform.node()}-{os.getenv('USER', os.getenv('USERNAME', 'unknown'))}".encode()
+
+    return hashlib.pbkdf2_hmac("sha256", master_key, salt, 200_000)
 
 
 def _get_cipher():
@@ -329,7 +362,7 @@ class Vault:
             if info.get("required") and not self.exists(key):
                 missing_required.append({"key": key, "desc": info["desc"]})
 
-        encryption_active = _get_cipher() is not None and _get_cipher() != "FALLBACK"
+        _get_cipher() is not None and _get_cipher() != "FALLBACK"
 
         return {
             "total_keys": len(keys),

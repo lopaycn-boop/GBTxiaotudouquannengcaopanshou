@@ -1,4 +1,5 @@
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
+import PropTypes from 'prop-types';
 
 const EXPORT_KEYS = [
   'potato_settings', 'potato_theme', 'potato_lang', 'potato_onboarding_done',
@@ -57,7 +58,7 @@ export default function SettingsBackup({ onImport, lang = 'zh' }) {
           try {
             localStorage.setItem(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
             count++;
-          } catch {}
+          } catch { /* empty */ }
         });
         setMessage(`✅ ${l.import} ${l.success} (${count} keys)`);
         onImport?.();
@@ -95,3 +96,8 @@ export default function SettingsBackup({ onImport, lang = 'zh' }) {
     </div>
   );
 }
+
+SettingsBackup.propTypes = {
+  onImport: PropTypes.func,
+  lang: PropTypes.string
+};

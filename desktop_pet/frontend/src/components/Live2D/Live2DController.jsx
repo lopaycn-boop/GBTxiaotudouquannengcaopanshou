@@ -11,6 +11,18 @@ const Live2DController = forwardRef(({ modelId }, ref) => {
       }
     },
 
+    playMotion: (group, index = 0) => {
+      if (live2dRef.current) {
+        live2dRef.current.playMotion(group, index);
+      }
+    },
+
+    playMotionByName: (motionName) => {
+      if (live2dRef.current) {
+        live2dRef.current.playMotionByName(motionName);
+      }
+    },
+
     setTracking: (enabled) => {
       if (live2dRef.current) {
         live2dRef.current.setTracking(enabled);

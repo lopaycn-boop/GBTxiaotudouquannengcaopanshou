@@ -1,8 +1,9 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import { useState, useEffect } from 'react';
+import PropTypes from 'prop-types';
 
 export default function DropOverlay({ onDrop, lang = 'zh' }) {
   const [dragging, setDragging] = useState(false);
-  const [dragCount, setDragCount] = useState(0);
+  const [_dragCount, setDragCount] = useState(0);
 
   useEffect(() => {
     const handleDragEnter = (e) => {
@@ -77,3 +78,8 @@ export default function DropOverlay({ onDrop, lang = 'zh' }) {
     </div>
   );
 }
+
+DropOverlay.propTypes = {
+  onDrop: PropTypes.func,
+  lang: PropTypes.string
+};

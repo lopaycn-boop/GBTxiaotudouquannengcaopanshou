@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import PropTypes from 'prop-types';
 
 const COMMANDS = [
   { id: 'market', icon: '📈', label: '查看行情', labelEn: 'Market Overview', msg: '帮我看看今天A股行情' },
@@ -139,3 +140,9 @@ export default function CommandPalette({ onSend, onAction, lang = 'zh' }) {
     </div>
   );
 }
+
+CommandPalette.propTypes = {
+  onSend: PropTypes.func,
+  onAction: PropTypes.func,
+  lang: PropTypes.string
+};

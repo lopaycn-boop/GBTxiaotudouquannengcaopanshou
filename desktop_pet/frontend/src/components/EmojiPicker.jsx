@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import PropTypes from 'prop-types';
 
 const EMOJI_CATEGORIES = {
   '😀': ['😀','😊','😂','🤣','😍','🥰','😎','🤔','😏','😇','🥳','😱','😢','😤','🤯','😴','🤮','🥶','🥵','😈'],
@@ -71,3 +72,8 @@ export default function EmojiPicker({ onSelect, lang = 'zh' }) {
     </div>
   );
 }
+
+EmojiPicker.propTypes = {
+  onSelect: PropTypes.func,
+  lang: PropTypes.string
+};

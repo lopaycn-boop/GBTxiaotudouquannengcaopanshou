@@ -2,7 +2,15 @@ import { useRef, useEffect, useCallback, useState } from 'react';
 
 const WAKE_WORDS = ['土豆', '小土豆', 'tudou', 'xiaotudou'];
 
-export function useWakeWord({ onWake, enabled = true } = {}) {
+// 动作口令关键词（不需要AI回复的纯动作指令）
+const MOTION_KEYWORDS = [
+  '挥手', '拜拜', '再见', '跳', '蹦', '转圈', '旋转',
+  '比心', '耶', '剪刀手', '鼓掌', '抱抱', '飞吻', '么么哒',
+  '敬礼', '鞠躬', '伸懒腰', '打拳', '招手', '举手', '比二',
+  '点头', '摇头', '跳舞', '装可爱', '卖萌', '发呆', '扭',
+];
+
+export function useWakeWord({ onWake, onMotionCommand, enabled = true } = {}) {
   const recognitionRef = useRef(null);
   const enabledRef = useRef(enabled);
   const activeRef = useRef(false);
@@ -24,7 +32,7 @@ export function useWakeWord({ onWake, enabled = true } = {}) {
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
     }
-    try { recognitionRef.current?.stop(); } catch (_) {}
+    try { recognitionRef.current?.stop(); } catch (__) { /* empty */ }
     recognitionRef.current = null;
   }, []);
 
@@ -61,6 +69,14 @@ export function useWakeWord({ onWake, enabled = true } = {}) {
           for (let j = 0; j < result.length; j++) {
             const transcript = result[j].transcript.toLowerCase().trim();
             if (!transcript) continue;
+
+            // 先检测动作口令（优先级最高，直接触发动作）
+            const motionHit = MOTION_KEYWORDS.find(kw => transcript.includes(kw));
+            if (motionHit && onMotionCommand) {
+              console.log('[wake] 动作口令命中:', transcript, '→', motionHit);
+              onMotionCommand(transcript);
+              return;
+            }
 
             const hit = WAKE_WORDS.some(w => transcript.includes(w));
             if (hit) {
@@ -109,12 +125,13 @@ export function useWakeWord({ onWake, enabled = true } = {}) {
       console.warn('[wake] 启动失败:', e);
       setError('启动失败');
     }
-  }, [onWake, stopWakeListener]);
+  }, [onWake, stopWakeListener, onMotionCommand]);
 
   const startWakeRecording = useCallback((sendPacket) => {
-    return new Promise(async (resolve) => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    return new Promise((resolve) => {
+      (async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         streamRef.current = stream;
         chunksRef.current = [];
 
@@ -152,6 +169,7 @@ export function useWakeWord({ onWake, enabled = true } = {}) {
         console.warn('[wake] 录音失败:', e);
         resolve();
       }
+      })();
     });
   }, []);
 

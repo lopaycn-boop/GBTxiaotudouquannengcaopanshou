@@ -323,6 +323,8 @@ class Database:
         updates["updated_at"] = datetime.now(timezone.utc)
         if self._use_sqlite:
             updates["updated_at"] = updates["updated_at"].isoformat()
+        # M8: Column names come from code-controlled dict keys (not user input);
+        # values are parameterized via %s — this f-string is safe by design.
         sets = ", ".join(f"{col} = %s" for col in updates)
         with self.connect() as conn:
             cur = conn.cursor()

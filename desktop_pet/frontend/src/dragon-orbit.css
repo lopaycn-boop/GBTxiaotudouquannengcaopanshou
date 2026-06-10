@@ -1,0 +1,106 @@
+/* ========================================================================
+   DRAGON ORBIT — 龙绕对话框盘旋动画
+   赛博朋克发光中国龙，沿 chat-card 边缘环绕
+   ======================================================================== */
+
+/* ── 龙容器：贴在 chat-card 外层，绝对定位 ── */
+.dragon-orbit-wrap {
+  position: absolute;
+  inset: -28px;
+  pointer-events: none;
+  z-index: -1;
+  overflow: visible;
+}
+
+/* ── 龙身旋转 ── */
+.dragon-orbit-svg {
+  width: calc(100% + 56px);
+  height: calc(100% + 56px);
+  animation: dragonSpin 12s linear infinite;
+  filter: drop-shadow(0 0 6px var(--neon-cyan, #00f5ff)) drop-shadow(0 0 18px var(--neon-cyan, #00f5ff)) drop-shadow(0 0 40px rgba(0,245,255,0.3));
+}
+
+@keyframes dragonSpin {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* ── 龙身呼吸 ── */
+.dragon-body-path {
+  animation: dragonBreathe 3s ease-in-out infinite;
+}
+
+@keyframes dragonBreathe {
+  0%, 100% { stroke-width: 3.5; opacity: 0.95; }
+  50%      { stroke-width: 5;   opacity: 1; }
+}
+
+/* ── 龙鳞闪烁 ── */
+.dragon-scale {
+  animation: scaleFlicker 1.5s ease-in-out infinite alternate;
+}
+
+.dragon-scale:nth-child(odd) {
+  animation-delay: 0.3s;
+}
+
+@keyframes scaleFlicker {
+  0%   { opacity: 0.5; r: 2; }
+  100% { opacity: 1;   r: 3.5; }
+}
+
+/* ── 龙眼发光 ── */
+.dragon-eye {
+  animation: eyeGlow 2s ease-in-out infinite;
+}
+
+@keyframes eyeGlow {
+  0%, 100% { fill: var(--neon-magenta, #ff2d95); filter: drop-shadow(0 0 3px var(--neon-magenta, #ff2d95)); }
+  50%      { fill: #ff6ec7; filter: drop-shadow(0 0 10px #ff6ec7) drop-shadow(0 0 20px var(--neon-magenta, #ff2d95)); }
+}
+
+/* ── 龙须飘动 ── */
+.dragon-whisker {
+  animation: whiskerWave 2.5s ease-in-out infinite alternate;
+  transform-origin: left center;
+}
+
+.dragon-whisker:nth-child(2) { animation-delay: 0.4s; }
+.dragon-whisker:nth-child(3) { animation-delay: 0.8s; }
+
+@keyframes whiskerWave {
+  0%   { transform: rotate(-5deg) scaleY(0.9); }
+  100% { transform: rotate(5deg) scaleY(1.1); }
+}
+
+/* ── 龙珠（龙追逐的宝珠） ── */
+.dragon-pearl {
+  animation: pearlPulse 2s ease-in-out infinite;
+}
+
+@keyframes pearlPulse {
+  0%, 100% { r: 5; fill: var(--neon-cyan, #00f5ff); filter: drop-shadow(0 0 4px var(--neon-cyan, #00f5ff)); }
+  50%      { r: 7; fill: #7fffff; filter: drop-shadow(0 0 12px #7fffff) drop-shadow(0 0 24px var(--neon-cyan, #00f5ff)); }
+}
+
+/* ── 火焰/能量尾迹粒子 ── */
+.dragon-particle {
+  animation: particleFade 1.8s ease-out infinite;
+}
+
+@keyframes particleFade {
+  0%   { opacity: 1;   r: 3; }
+  50%  { opacity: 0.6; r: 2; }
+  100% { opacity: 0;   r: 0.5; }
+}
+
+/* ── 对话框关闭时龙也隐藏 ── */
+.chat-card.hidden .dragon-orbit-wrap {
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.chat-card.visible .dragon-orbit-wrap {
+  opacity: 1;
+  transition: opacity 0.5s 0.2s;
+}

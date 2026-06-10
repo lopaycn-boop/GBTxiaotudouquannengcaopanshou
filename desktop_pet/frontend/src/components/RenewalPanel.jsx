@@ -1,5 +1,5 @@
-import React from 'react';
 
+import PropTypes from 'prop-types';
 export default function RenewalPanel({ data, onClose, onConfirmPayment }) {
   if (!data) return null;
 
@@ -128,3 +128,18 @@ export default function RenewalPanel({ data, onClose, onConfirmPayment }) {
     </div>
   );
 }
+
+RenewalPanel.propTypes = {
+  data: PropTypes.shape({
+      wallet_address: PropTypes.any,
+      wallet_label: PropTypes.any,
+      total_renewal_cny: PropTypes.any,
+      current_balance_cny: PropTypes.any,
+      balance_sufficient: PropTypes.any,
+      items: PropTypes.any,
+      qr_code: PropTypes.any,
+      payment_note: PropTypes.any
+    }),
+  onClose: PropTypes.func,
+  onConfirmPayment: PropTypes.func
+};

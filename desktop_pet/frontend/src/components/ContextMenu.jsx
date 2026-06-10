@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import PropTypes from 'prop-types';
 
 export default function ContextMenu({ x, y, items, onClose, lang = 'zh' }) {
   const ref = useRef(null);
@@ -63,3 +64,18 @@ export default function ContextMenu({ x, y, items, onClose, lang = 'zh' }) {
     </div>
   );
 }
+
+ContextMenu.propTypes = {
+  x: PropTypes.number,
+  y: PropTypes.number,
+  items: PropTypes.arrayOf(PropTypes.shape({
+    action: PropTypes.func,
+    label: PropTypes.string,
+    icon: PropTypes.node,
+    shortcut: PropTypes.string,
+    sep: PropTypes.bool,
+    danger: PropTypes.bool,
+  })),
+  onClose: PropTypes.func,
+  lang: PropTypes.string,
+};

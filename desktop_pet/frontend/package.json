@@ -22,7 +22,7 @@
     "appId": "com.xiaotudou.desktop-pet",
     "productName": "小土豆AI桌宠",
     "directories": {
-      "output": "release"
+      "output": "release2"
     },
     "files": [
       "dist/**/*",
@@ -32,6 +32,13 @@
       "Start.vbs"
     ],
     "extraResources": [
+      {
+        "from": "dist2",
+        "to": "frontend-dist",
+        "filter": [
+          "**/*"
+        ]
+      },
       {
         "from": "../backend",
         "to": "backend",
@@ -99,10 +106,8 @@
     "win": {
       "target": [
         {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
+          "target": "nsis",
+          "arch": ["x64"]
         }
       ],
       "icon": "public/icon.ico"
@@ -113,7 +118,8 @@
     "linux": {
       "target": "AppImage"
     },
-    "npmRebuild": false
+    "npmRebuild": false,
+    "asar": false
   },
   "dependencies": {
     "@ricky0123/vad-react": "^0.0.36",

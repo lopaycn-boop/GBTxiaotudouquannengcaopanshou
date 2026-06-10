@@ -22,13 +22,11 @@ from typing import Any
 from potato.config import load_settings
 from potato.llm import achat
 from potato.eastmoney import (
-    EastMoneyClient,
-    analyze_sentiment,
     get_stock_changes,
     get_hot_tables,
     get_realtime_quote as em_get_realtime_quote,
 )
-from potato.iwencai import IwencaiClient, format_iwencai_to_text
+from potato.iwencai import IwencaiClient
 
 logger = logging.getLogger("potato.trading.plan_execute")
 

@@ -44,6 +44,16 @@ PROVIDERS = [
         "renewal_url": "https://platform.deepseek.com/usage",
     },
     {
+        "name": "zhipu-glm",
+        "key_env": "GLM_API_KEY",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "model": "glm-4-flash",
+        "max_tokens": 4096,
+        "supports_json_mode": True,
+        "priority": {"chat": 2, "analysis": 2, "research": 1, "fallback": 2},
+        "renewal_url": "https://open.bigmodel.cn/",
+    },
+    {
         "name": "siliconflow",
         "key_env": "SILICON_API_KEY",
         "base_url": "https://api.siliconflow.cn/v1",

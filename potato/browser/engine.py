@@ -7,23 +7,33 @@ grants computer permissions; this module drives the actual browser session.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
-from pathlib import Path
 from typing import Any, Optional
 
-logger = logging.getLogger("potato.browser")
-
 from potato.paths import DATA_DIR as _ROOT_DATA_DIR
+
+logger = logging.getLogger("potato.browser")
 
 browser_profiles_dir = _ROOT_DATA_DIR / "browser_profiles"
 
 _SAFE_JS_PATTERNS = [
-    re.compile(r"^document\.\s*(querySelector|getElementById|getElementsByClassName|getElementsByName)\s*\(", re.DOTALL),
-    re.compile(r"^\s*return\s+", re.DOTALL),
-    re.compile(r"^window\.\s*(location|scrollTo|scrollBy)\b", re.DOTALL),
-    re.compile(r"^\s*\{?\s*['\"]?ok['\"]?\s*[:=]\s*(true|false)\s*\}?\s*;?\s*$", re.DOTALL),
+    re.compile(r"^document\.(querySelector|getElementById|getElementsByClassName|getElementsByName)\([^)]*\)$", re.DOTALL),
+    re.compile(r"^return\s+.+$", re.DOTALL),
+    re.compile(r"^window\.(scrollTo|scrollBy)\([^)]*\)$", re.DOTALL),
+    re.compile(r"^\{?\s*['\"]?ok['\"]?\s*[:=]\s*(true|false)\s*\}?\s*;?\s*$", re.DOTALL),
+]
+
+_BLOCKED_JS_PATTERNS = [
+    re.compile(r"fetch\s*\("),
+    re.compile(r"XMLHttpRequest"),
+    re.compile(r"eval\s*\("),
+    re.compile(r"Function\s*\("),
+    re.compile(r"importScripts\s*\("),
+    re.compile(r"window\.location\s*="),
+    re.compile(r"document\.cookie"),
+    re.compile(r"localStorage"),
+    re.compile(r"sessionStorage"),
 ]
 
 _MAX_JS_LENGTH = 512
@@ -196,6 +206,12 @@ class BrowserEngine:
         if not page or page.is_closed():
             return None
         cleaned = script.strip()
+        # Check blocked patterns first (blacklist)
+        for pat in _BLOCKED_JS_PATTERNS:
+            if pat.search(cleaned):
+                logger.warning("evaluate_js blocked: matches blocked pattern: %s", cleaned[:80])
+                return None
+        # Then check safe patterns (whitelist)
         for pat in _SAFE_JS_PATTERNS:
             if pat.match(cleaned):
                 return await page.evaluate(script)

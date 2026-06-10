@@ -1,12 +1,29 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 
-const WS_TOKEN = '';  // Set to match PET_WS_TOKEN env var if authentication is enabled
+// WS token will be fetched from /health endpoint at runtime
+let _cachedWsToken = '';
 
-function buildWsUrl(baseUrl) {
+async function fetchWsToken() {
+  if (_cachedWsToken) return _cachedWsToken;
+  try {
+    const r = await fetch('/health');
+    if (!r.ok) {
+      // 可能前端跑在5173，后端在8000
+      const r2 = await fetch('http://127.0.0.1:8000/health');
+      if (r2.ok) { const d = await r2.json(); _cachedWsToken = d.ws_token || ''; return _cachedWsToken; }
+    } else {
+      const d = await r.json();
+      _cachedWsToken = d.ws_token || '';
+      return _cachedWsToken;
+    }
+  } catch (_e) { /* ignore */ }
+  return '';
+}
+
+function buildWsUrl(baseUrl, token) {
+  if (!token) return baseUrl;
   const url = new URL(baseUrl);
-  if (WS_TOKEN) {
-    url.searchParams.set('token', WS_TOKEN);
-  }
+  url.searchParams.set('token', token);
   return url.toString();
 }
 
@@ -21,54 +38,61 @@ export function useNeuroSocket(url, onMessage) {
     onMessageRef.current = onMessage;
   }, [onMessage]);
 
-  const connect = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
+  useEffect(() => {
+    let cancelled = false;
 
-    const ws = new WebSocket(WS_TOKEN ? buildWsUrl(url) : url);
-    wsRef.current = ws;
+    const connect = async () => {
+      // 获取 WS token
+      const token = await fetchWsToken();
+      const wsUrl = buildWsUrl(url, token);
 
-    ws.onopen = () => {
-      console.log("✅ Neuro Link Connected");
-      retryRef.current = 0;
-      setConnected(true);
-    };
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
-    ws.onmessage = (event) => {
-      try {
-        const packet = JSON.parse(event.data);
-        if (onMessageRef.current) {
-          onMessageRef.current(packet);
+      ws.onopen = () => {
+        if (cancelled) { ws.close(); return; }
+        setConnected(true);
+        retryRef.current = 0;
+      };
+
+      ws.onmessage = (event) => {
+        if (cancelled) return;
+        try {
+          const data = JSON.parse(event.data);
+          onMessageRef.current?.(data);
+        } catch (_e) {
+          onMessageRef.current?.({ type: 'raw', data: event.data });
         }
-      } catch (e) {
-        console.error("WS Parse Error:", e);
-      }
+      };
+
+      ws.onclose = () => {
+        if (cancelled) return;
+        setConnected(false);
+        const delay = Math.min(1000 * Math.pow(2, retryRef.current), 30000);
+        retryRef.current++;
+        timerRef.current = setTimeout(connect, delay);
+      };
+
+      ws.onerror = () => {
+        // onclose will handle retry
+      };
     };
 
-    ws.onerror = (e) => console.error("WS Error:", e);
+    connect();
 
-    ws.onclose = () => {
-      console.log("❌ 连接断开，自动重连...");
-      setConnected(false);
-      const delay = Math.min(1000 * Math.pow(2, retryRef.current), 30000);
-      retryRef.current += 1;
-      timerRef.current = setTimeout(connect, delay);
+    return () => {
+      cancelled = true;
+      clearTimeout(timerRef.current);
+      if (wsRef.current) {
+        wsRef.current.onclose = null;
+        wsRef.current.close();
+      }
     };
   }, [url]);
 
-  useEffect(() => {
-    connect();
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.close();
-    };
-  }, [connect]);
-
-  const sendPacket = useCallback((packet) => {
+  const sendPacket = useCallback((data) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(packet));
+      wsRef.current.send(JSON.stringify(data));
     }
   }, []);
 

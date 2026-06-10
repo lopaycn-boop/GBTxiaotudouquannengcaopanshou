@@ -22,7 +22,6 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from potato.bootstrap_config import load_bootstrap_settings
 from potato.db import Database
 
 logger = logging.getLogger("potato.memory")
@@ -179,7 +178,9 @@ class MemoryStore:
 
     def search_memories(self, keyword: str, limit: int = 10) -> list[dict[str, Any]]:
         """Search memories by keyword (full-text)."""
-        pattern = f"%{keyword}%"
+        # M3: Escape LIKE wildcards to prevent injection
+        safe_keyword = keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{safe_keyword}%"
         with self.db.connect() as conn:
             cur = conn.cursor()
             cur.execute(
@@ -326,7 +327,7 @@ class MemoryStore:
                 content = m_dict.get("content", "")[:150]
                 cat = m_dict.get("category", "")
                 hot_lines.append(f"  - [{cat}] {content}")
-            sections.append(f"【近期记忆 (15天内)】\n" + "\n".join(hot_lines))
+            sections.append("【近期记忆 (15天内)】\n" + "\n".join(hot_lines))
 
         warm = self.get_warm_memories(limit=5)
         if warm:
@@ -335,7 +336,7 @@ class MemoryStore:
                 m_dict = dict(m) if isinstance(m, dict) else m
                 content = m_dict.get("content", "")[:100]
                 warm_lines.append(f"  - {content}")
-            sections.append(f"【较早记忆 (15-30天)】\n" + "\n".join(warm_lines))
+            sections.append("【较早记忆 (15-30天)】\n" + "\n".join(warm_lines))
 
         if user_input:
             related = self.search_memories(user_input[:30], limit=3)
@@ -344,7 +345,7 @@ class MemoryStore:
                 for m in related:
                     m_dict = dict(m) if isinstance(m, dict) else m
                     rel_lines.append(f"  - {m_dict.get('content', '')[:120]}")
-                sections.append(f"【相关记忆】\n" + "\n".join(rel_lines))
+                sections.append("【相关记忆】\n" + "\n".join(rel_lines))
 
         summaries = self.get_recent_summaries(limit=2)
         if summaries:
@@ -353,7 +354,7 @@ class MemoryStore:
                 s_dict = dict(s) if isinstance(s, dict) else s
                 sum_lines.append(f"  [{s_dict.get('period_start', '')}~{s_dict.get('period_end', '')}] "
                                  f"{s_dict.get('summary', '')[:200]}")
-            sections.append(f"【历史摘要】\n" + "\n".join(sum_lines))
+            sections.append("【历史摘要】\n" + "\n".join(sum_lines))
 
         if not sections:
             return "（暂无记忆）"

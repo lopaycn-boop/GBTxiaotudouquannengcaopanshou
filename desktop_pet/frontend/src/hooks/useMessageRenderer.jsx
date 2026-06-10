@@ -106,7 +106,7 @@ function renderTextBlock(content) {
     }
 
     // Emoji header lines
-    if (/^[📌🟢🔴🟡👀📊🔬✅🛑⚠️🛡️💰💹📈📉🔥📅🔗🧠🔑💳🔄💽📋🥔]/.test(line.trim())) {
+    if (/^[\p{Emoji_Presentation}\p{Emoji}\u{FE0F}\u{200D}]/u.test(line.trim())) {
       elements.push(<div key={key++} style={{ fontWeight: 600, marginBottom: 4, lineHeight: 1.5 }}>{line}</div>);
       continue;
     }

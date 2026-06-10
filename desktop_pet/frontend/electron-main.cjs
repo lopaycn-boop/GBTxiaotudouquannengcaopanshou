@@ -1,7 +1,14 @@
-const { app, BrowserWindow, screen } = require('electron');
+const { app, BrowserWindow, screen, protocol, net } = require('electron');
 const path = require('path');
 const { spawn, execSync } = require('child_process');
 const fs = require('fs');
+
+// ── Register app:// protocol BEFORE app.ready for fetch() support in packaged mode ──
+// Chromium blocks fetch() on file:// — app:// avoids this entirely.
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'app',
+  privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true },
+}]);
 
 app.commandLine.appendSwitch('disable-features', 'OutOfBlinkCors');
 app.commandLine.appendSwitch('enable-webgl');
@@ -171,6 +178,27 @@ function startBackend() {
   } catch (e) { logger.error(`启动后端异常: ${e.message}`); }
 }
 
+function registerAppProtocol() {
+  const distDir = app.isPackaged
+    ? path.join(process.resourcesPath, 'frontend-dist')
+    : path.join(__dirname, 'dist');
+
+  // Use protocol.handle with net.fetch from file:// URL.
+  // registerSchemesAsPrivileged with supportFetchAPI:true makes this work
+  // for JS module loading and Live2D model fetch().
+  protocol.handle('app', (request) => {
+    const urlPath = decodeURI(new URL(request.url).pathname);
+    const relativePath = urlPath.replace(/^\//, '');
+    const filePath = path.join(distDir, relativePath);
+    logger.info(`[app://] ${request.url} → ${filePath}`);
+    // net.fetch requires proper file:// URL on Windows
+    const fileUrl = 'file:///' + filePath.replace(/\\/g, '/');
+    return net.fetch(fileUrl);
+  });
+
+  logger.info(`Registered app:// protocol → ${distDir}`);
+}
+
 function createWindow() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
@@ -207,9 +235,9 @@ function createWindow() {
   if (isDev) {
     win.loadURL('http://localhost:5173');
   } else {
-    const distIndex = path.join(__dirname, 'dist', 'index.html');
-    if (fs.existsSync(distIndex)) { win.loadFile(distIndex); }
-    else { const altIndex = path.join(process.resourcesPath, 'app', 'dist', 'index.html'); if (fs.existsSync(altIndex)) { win.loadFile(altIndex); } else { logger.error(`找不到界面文件`); } }
+    // Packaged: use app:// custom protocol — not file:// — so fetch() works
+    // for Live2D model/resource loading (Chromium blocks fetch on file://).
+    win.loadURL('app://localhost/index.html');
   }
 
   // 不穿透 — 依赖CSS pointer-events来控制穿透
@@ -218,6 +246,16 @@ function createWindow() {
 
   win.on('did-fail-load', (_e, code, desc) => { logger.error(`页面加载失败: ${code} ${desc}`); });
   win.on('render-process-gone', (_e, details) => { logger.error(`渲染进程崩溃: ${details.reason}`); setTimeout(() => win.reload(), 1000); });
+  // DEBUG: Capture renderer console to log file
+  win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    const levelName = ['verbose','info','warning','error'][level] || level;
+    const lineInfo = sourceId ? ` (${sourceId}:${line})` : '';
+    fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [renderer:${levelName}] ${message}${lineInfo}\n`, 'utf-8');
+  });
+  // DEBUG: Open DevTools in packaged mode to diagnose Live2D loading
+  if (!isDev) {
+    win.webContents.openDevTools({ mode: 'detach' });
+  }
   logger.success('前端窗口已创建');
 }
 
@@ -234,6 +272,7 @@ function killBackend() {
 }
 
 app.whenReady().then(() => {
+  registerAppProtocol();
   startBackend();
   // 延迟创建窗口，等后端启动
   setTimeout(() => {

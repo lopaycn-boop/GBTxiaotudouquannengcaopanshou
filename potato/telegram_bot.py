@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 
 from potato.config import load_settings
-from potato.notifications import BotNotifier, is_live_secret, upsert_bot_secret
+from potato.notifications import BotNotifier, is_live_secret, upsert_bot_secret, get_bot_secret
 
 logger = logging.getLogger("potato.telegram")
 
@@ -122,7 +122,14 @@ class TelegramRunner:
             return {"ok": False, "error": str(exc)}
 
     def handle_incoming(self, chat_id: int | str, text: str) -> dict[str, Any]:
-        upsert_bot_secret("TELEGRAM_CHAT_ID", str(chat_id))
+        existing_chat_id = get_bot_secret("TELEGRAM_CHAT_ID")
+        if existing_chat_id and str(existing_chat_id) != str(chat_id):
+            logger.warning(
+                "TELEGRAM_CHAT_ID already set to %s, refusing overwrite with %s",
+                existing_chat_id, chat_id,
+            )
+        else:
+            upsert_bot_secret("TELEGRAM_CHAT_ID", str(chat_id))
         cmd = (text or "").strip().split()[0].lower() if text else ""
 
         if cmd in {"/start", "/help"}:

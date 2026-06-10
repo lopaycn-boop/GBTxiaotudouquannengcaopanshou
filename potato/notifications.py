@@ -20,6 +20,24 @@ logger = logging.getLogger("potato.notify")
 
 PLACEHOLDER_PREFIX = "REPLACE_WITH_"
 
+# H4: Webhook domain whitelist — only allow official DingTalk/Feishu domains
+_ALLOWED_WEBHOOK_DOMAINS = {
+    "oapi.dingtalk.com",
+    "open.feishu.cn",
+}
+
+
+def _validate_webhook_url(url: str, allowed_domains: set[str] | None = None) -> bool:
+    """Reject webhook URLs that don't match allowed domains."""
+    from urllib.parse import urlparse
+    domains = allowed_domains or _ALLOWED_WEBHOOK_DOMAINS
+    try:
+        parsed = urlparse(url)
+        hostname = (parsed.hostname or "").lower()
+        return any(hostname == d or hostname.endswith("." + d) for d in domains)
+    except Exception:
+        return False
+
 
 def is_live_secret(value: str) -> bool:
     v = (value or "").strip()
@@ -162,6 +180,10 @@ class BotNotifier:
         webhook = self.settings.dingtalk_webhook_url
         if not is_live_secret(webhook):
             return {"ok": False, "skipped": True, "reason": "DINGTALK_WEBHOOK_URL placeholder or empty"}
+        # H4: Validate webhook domain
+        if not _validate_webhook_url(webhook, {"oapi.dingtalk.com"}):
+            logger.warning("DingTalk webhook URL rejected (domain not in whitelist): %s", webhook[:50])
+            return {"ok": False, "error": "Webhook URL domain not allowed"}
         url = webhook
         secret = self.settings.dingtalk_secret
         if is_live_secret(secret):
@@ -186,21 +208,26 @@ class BotNotifier:
 
     def _send_feishu(self, text: str) -> dict[str, Any]:
         webhook = self.settings.feishu_webhook_url
-        if is_live_secret(webhook):
-            try:
-                resp = httpx.post(
-                    webhook,
-                    json={"msg_type": "text", "content": {"text": text}},
-                    timeout=30.0,
-                )
-                data = resp.json()
-                code = data.get("code", data.get("StatusCode", 0))
-                if code not in (0, 200):
-                    return {"ok": False, "error": data.get("msg", data.get("StatusMessage", resp.text))}
-                return {"ok": True, "mode": "webhook"}
-            except Exception as exc:
-                logger.warning("Feishu webhook send failed: %s", exc)
-                return {"ok": False, "error": str(exc)}
+        if not is_live_secret(webhook):
+            return {"ok": False, "skipped": True, "reason": "FEISHU_WEBHOOK_URL placeholder or empty"}
+        # H4: Validate webhook domain
+        if not _validate_webhook_url(webhook, {"open.feishu.cn"}):
+            logger.warning("Feishu webhook URL rejected (domain not in whitelist): %s", webhook[:50])
+            return {"ok": False, "error": "Webhook URL domain not allowed"}
+        try:
+            resp = httpx.post(
+                webhook,
+                json={"msg_type": "text", "content": {"text": text}},
+                timeout=30.0,
+            )
+            data = resp.json()
+            code = data.get("code", data.get("StatusCode", 0))
+            if code not in (0, 200):
+                return {"ok": False, "error": data.get("msg", data.get("StatusMessage", resp.text))}
+            return {"ok": True, "mode": "webhook"}
+        except Exception as exc:
+            logger.warning("Feishu webhook send failed: %s", exc)
+            return {"ok": False, "error": str(exc)}
 
         app_id = self.settings.feishu_app_id
         app_secret = self.settings.feishu_app_secret
@@ -354,3 +381,22 @@ def upsert_bot_secret(key: str, value: str) -> None:
             Vault().store(key, value)
     except Exception as exc:
         logger.warning("upsert_bot_secret failed for %s: %s", key, exc)
+
+
+def get_bot_secret(key: str) -> str:
+    """Read a bot secret from the store; returns empty string if not found."""
+    from potato.bootstrap_config import load_bootstrap_settings
+    from potato.secret_store import SecretStore
+
+    try:
+        bootstrap = load_bootstrap_settings()
+        if bootstrap.crdb_dsn:
+            store = SecretStore(bootstrap)
+            store.ensure_schema()
+            return store.get(key, default="")
+        else:
+            from potato.vault import Vault
+            return Vault().get(key)
+    except Exception as exc:
+        logger.warning("get_bot_secret failed for %s: %s", key, exc)
+        return ""

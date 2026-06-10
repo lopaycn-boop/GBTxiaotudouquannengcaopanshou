@@ -6,13 +6,13 @@ export default function useI18n(defaultLang = 'zh') {
     try {
       const saved = localStorage.getItem('potato_lang');
       if (saved === 'zh' || saved === 'en') return saved;
-    } catch {}
+    } catch { /* empty */ }
     return defaultLang;
   });
 
   const switchLang = useCallback((newLang) => {
     setLang(newLang);
-    try { localStorage.setItem('potato_lang', newLang); } catch {}
+    try { localStorage.setItem('potato_lang', newLang); } catch { /* empty */ }
   }, []);
 
   const t = useCallback((key) => translate(key, lang), [lang]);

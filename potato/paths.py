@@ -31,3 +31,19 @@ def _resolve_data_dir() -> Path:
 
 
 DATA_DIR = _resolve_data_dir()
+
+
+def get_secure_config_dir() -> Path:
+    """Return platform-specific secure directory for sensitive config (salt, etc).
+    Separate from DATA_DIR which may contain database files.
+    """
+    if sys.platform == "darwin":
+        d = Path.home() / "Library" / "Application Support" / "potato-desktop-pet"
+    elif sys.platform == "linux":
+        xdg = os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
+        d = Path(xdg) / "potato-desktop-pet"
+    else:
+        # Windows
+        d = Path(os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming"))) / "potato-desktop-pet"
+    d.mkdir(parents=True, exist_ok=True)
+    return d

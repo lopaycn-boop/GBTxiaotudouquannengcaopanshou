@@ -1,11 +1,10 @@
 """Enhanced cycle execution with timeout protection and validation."""
 from __future__ import annotations
 
-import asyncio
 import logging
+import threading
 import time
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger("potato")
@@ -24,33 +23,46 @@ class CycleValidationError(Exception):
 @contextmanager
 def cycle_timeout(max_seconds: float = 120):
     """Context manager for cycle timeout protection.
-    
+
+    Uses a threading.Timer to set a flag after max_seconds. The caller
+    should check the flag periodically (e.g. in a loop) by calling the
+    returned ``check`` function, which raises CycleTimeout if the
+    deadline has passed.
+
     Args:
         max_seconds: Maximum allowed execution time in seconds.
-        
-    Raises:
-        CycleTimeout: If execution exceeds max_seconds.
+
+    Yields:
+        A callable ``check()`` that raises CycleTimeout when the
+        timeout has expired.
+
+    Usage::
+
+        with cycle_timeout(60) as check:
+            for item in work:
+                check()           # raises CycleTimeout if >60s elapsed
+                process(item)
     """
-    start_time = time.time()
-    
-    def timeout_handler():
-        elapsed = time.time() - start_time
-        if elapsed > max_seconds:
+    _timed_out = threading.Event()
+    _timer = threading.Timer(max_seconds, _timed_out.set)
+    _timer.daemon = True
+
+    def check():
+        if _timed_out.is_set():
             raise CycleTimeout(
-                f"Cycle execution exceeded {max_seconds}s (elapsed: {elapsed:.2f}s)"
+                f"Cycle execution exceeded {max_seconds}s"
             )
-    
+
     try:
-        yield timeout_handler
+        _timer.start()
+        yield check
     finally:
-        elapsed = time.time() - start_time
-        if elapsed > max_seconds:
+        _timer.cancel()
+        if _timed_out.is_set():
             logger.error(
                 "Cycle execution exceeded timeout",
                 extra={
-                    "elapsed_seconds": elapsed,
                     "max_seconds": max_seconds,
-                    "overage_seconds": elapsed - max_seconds,
                 }
             )
 

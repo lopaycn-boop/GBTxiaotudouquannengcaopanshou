@@ -9,7 +9,6 @@ Supports: Windows / macOS / Linux
 from __future__ import annotations
 
 import logging
-import os
 import platform
 import subprocess
 import shutil
@@ -87,10 +86,16 @@ def _find_win_exe(app: DesktopApp) -> str | None:
 def _find_mac_app(app: DesktopApp) -> str | None:
     if not app.mac_bundle:
         return None
+    # M1: Use list args instead of shell string to prevent injection
     result = subprocess.run(
         ["mdfind", f"kMDItemCFBundleIdentifier == '{app.mac_bundle}'"],
         capture_output=True, text=True, timeout=5,
     )
+    # M1: Validate mac_bundle is alphanumeric+dots (known_apps only)
+    import re
+    if not re.match(r'^[a-zA-Z0-9.\-]+$', app.mac_bundle):
+        logger.warning("Invalid mac_bundle format: %s", app.mac_bundle)
+        return None
     paths = result.stdout.strip().split("\n")
     if paths and paths[0]:
         return paths[0]

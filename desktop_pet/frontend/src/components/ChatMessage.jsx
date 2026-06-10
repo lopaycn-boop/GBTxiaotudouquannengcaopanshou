@@ -1,17 +1,18 @@
-import React, { memo, useCallback } from 'react';
+import { memo } from 'react';
 import { renderMessageContent } from '../hooks/useMessageRenderer.jsx';
+import PropTypes from 'prop-types';
 
 const SECRET_PATTERNS = [
   { re: /(sk-[a-zA-Z0-9]{8,})/gi, label: 'API_KEY' },
   { re: /(key[a-z_]*[=:]\s*)["']?([a-zA-Z0-9\-_]{16,})["']?/gi, label: 'KEY' },
-  { re: /(token[a-z_]*[=:]\s*)["']?([a-zA-Z0-9\-_\.]{16,})["']?/gi, label: 'TOKEN' },
-  { re: /(secret[a-z_]*[=:]\s*)["']?([a-zA-Z0-9\-_\.]{16,})["']?/gi, label: 'SECRET' },
+  { re: /(token[a-z_]*[=:]\s*)["']?([a-zA-Z0-9\-_.]{16,})["']?/gi, label: 'TOKEN' },
+  { re: /(secret[a-z_]*[=:]\s*)["']?([a-zA-Z0-9\-_.]{16,})["']?/gi, label: 'SECRET' },
   { re: /(password[a-z_]*[=:]\s*)["']?([^\s"']{6,})["']?/gi, label: 'PASSWORD' },
-  { re: /(Bearer\s+)([a-zA-Z0-9\-_\.]{16,})/gi, label: 'BEARER' },
-  { re: /([a-zA-Z0-9+\/]{48,}={1,2})(?=[\s\]|}]|$)/g, label: 'BASE64_SECRET' },
+  { re: /(Bearer\s+)([a-zA-Z0-9\-_.]{16,})/gi, label: 'BEARER' },
+  { re: /([a-zA-Z0-9+/]{48,}={1,2})(?=[\s\]|}]|$)/g, label: 'BASE64_SECRET' },
 ];
 
-function maskSecrets(text) {
+function _maskSecrets(text) {
   if (!text || typeof text !== 'string') return text;
   let result = text;
   for (const { re, label } of SECRET_PATTERNS) {
@@ -29,7 +30,7 @@ function formatTs(ts) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-const ChatMessage = memo(function ChatMessage({ msg, index, onRetry, onDelete, lang, copyToClipboard: copyFn }) {
+const ChatMessage = memo(function ChatMessage({ msg, _index, _onRetry, _onDelete, _lang, copyToClipboard: _copyFn }) {
   const semanticClass = msg.type === 'system'
     ? msg.content?.startsWith('❌') || msg.content?.startsWith('🛑') ? ' error'
     : msg.content?.startsWith('✅') || msg.content?.startsWith('🔗') ? ' success'
@@ -69,3 +70,18 @@ const ChatMessage = memo(function ChatMessage({ msg, index, onRetry, onDelete, l
 }, (prev, next) => prev.msg.ts === next.msg.ts && prev.msg.content === next.msg.content && prev.msg.type === next.msg.type);
 
 export default ChatMessage;
+
+_maskSecrets.propTypes = {
+  msg: PropTypes.shape({
+      type: PropTypes.any,
+      content: PropTypes.any,
+      ts: PropTypes.any,
+      alt: PropTypes.any,
+      image: PropTypes.any
+    }),
+  index: PropTypes.number,
+  onRetry: PropTypes.func,
+  onDelete: PropTypes.func,
+  lang: PropTypes.string,
+  copyToClipboard: PropTypes.func
+};

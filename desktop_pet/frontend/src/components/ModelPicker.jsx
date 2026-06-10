@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { getAvailableModels, getSavedModelId, saveModelId, getModelConfig } from './Live2D/modelRegistry';
+import { getAvailableModels, saveModelId, getModelConfig } from './Live2D/modelRegistry';
+import PropTypes from 'prop-types';
 
 export default function ModelPicker({ currentModel, onSwitch }) {
   const [open, setOpen] = useState(false)
@@ -63,3 +64,8 @@ export default function ModelPicker({ currentModel, onSwitch }) {
     </div>
   )
 }
+
+ModelPicker.propTypes = {
+  currentModel: PropTypes.string,
+  onSwitch: PropTypes.any
+};

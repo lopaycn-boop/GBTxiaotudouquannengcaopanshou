@@ -66,9 +66,18 @@ async def _execute_task(task_id: str):
     from bytebot_client import get_bytebot_client
     client = get_bytebot_client()
 
-    if not await client.is_desktop_available():
+    daemon_available = await client.is_desktop_available()
+
+    if not daemon_available:
+        # Fallback: 直接用本地 subprocess 执行简单命令
+        logger.info("Daemon unavailable, trying local subprocess fallback for: %s", description)
+        result = await _local_execute_fallback(description)
+        if result:
+            task["status"] = "COMPLETED"
+            task["result"] = result
+            return
         task["status"] = "FAILED"
-        task["error"] = "Desktop daemon unavailable on port 9990"
+        task["error"] = "Desktop daemon unavailable on port 9990 and local fallback failed"
         return
 
     system_prompt = (
@@ -312,6 +321,75 @@ def start_agent_server(port: int = 9991):
     import uvicorn
     logger.info("Starting built-in Bytebot Agent on port %d", port)
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+
+
+# ── Local subprocess fallback (when desktop daemon is unavailable) ──
+
+_APP_ALIASES = {
+    "记事本": "notepad", "notepad": "notepad",
+    "计算器": "calc", "calc": "calc", "计算器": "calc.exe",
+    "画图": "mspaint", "mspaint": "mspaint",
+    "命令行": "cmd", "cmd": "cmd", "终端": "cmd",
+    "任务管理器": "taskmgr", "taskmgr": "taskmgr",
+    "资源管理器": "explorer", "explorer": "explorer",
+    "浏览器": "explorer", "chrome": "chrome", "edge": "msedge",
+    "设置": "ms-settings:", "控制面板": "control",
+    "word": "winword", "excel": "excel", "ppt": "powerpnt",
+    "同花顺": "hexin", "东方财富": "eastmoney",
+    "微信": "WeChat", "qq": "QQ",
+}
+
+_SAFE_APPS = {
+    "notepad", "calc", "calc.exe", "mspaint", "cmd", "taskmgr",
+    "explorer", "msedge", "chrome", "control",
+    "winword", "excel", "powerpnt",
+    "hexin", "eastmoney", "WeChat", "QQ",
+    "ms-settings:",
+}
+
+
+async def _local_execute_fallback(description: str) -> dict | None:
+    """Parse natural language task and execute locally via subprocess."""
+    import subprocess as sp
+    import asyncio
+
+    desc = description.strip()
+    if not desc or len(desc) > 200:
+        return None
+
+    # Pattern: 打开/启动/运行 XX
+    import re
+    m = re.search(r'(?:打开|启动|运行|开|运行|open|launch|run)\s*([^\s,，。]+)', desc, re.IGNORECASE)
+    if not m:
+        return None
+
+    app_name = m.group(1).strip()
+    exe = _APP_ALIASES.get(app_name, app_name)
+
+    # Security: only allow safe apps
+    base = exe.lower().replace(".exe", "")
+    if base not in _SAFE_APPS and exe not in _SAFE_APPS:
+        logger.warning("Local fallback blocked unsafe app: %s / %s", app_name, exe)
+        return None
+
+    try:
+        loop = asyncio.get_running_loop()
+        if exe == "ms-settings:":
+            proc = await loop.run_in_executor(None, lambda: sp.Popen(["cmd", "/c", "start", "ms-settings:"]))
+        else:
+            proc = await loop.run_in_executor(None, lambda: sp.Popen(["cmd", "/c", "start", exe], shell=True))
+
+        logger.info("Local fallback launched: %s -> %s (pid=%s)", app_name, exe, proc.pid)
+        return {
+            "ok": True,
+            "method": "local_subprocess",
+            "app": app_name,
+            "exe": exe,
+            "pid": proc.pid,
+        }
+    except Exception as e:
+        logger.warning("Local fallback error: %s", e)
+        return None
 
 
 if __name__ == "__main__":

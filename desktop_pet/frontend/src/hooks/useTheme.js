@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 const THEMES = {
   dark: {
@@ -58,12 +58,12 @@ export default function useTheme(defaultTheme = 'dark') {
     try {
       const saved = localStorage.getItem('potato_theme');
       if (saved === 'dark' || saved === 'light' || saved === 'auto') return saved;
-    } catch {}
+    } catch { /* empty */ }
     return defaultTheme;
   });
 
   useEffect(() => {
-    try { localStorage.setItem('potato_theme', theme); } catch {}
+    try { localStorage.setItem('potato_theme', theme); } catch { /* empty */ }
     const effective = theme === 'auto' ? getSystemTheme() : theme;
     const vars = THEMES[effective] || THEMES.dark;
     const root = document.documentElement;

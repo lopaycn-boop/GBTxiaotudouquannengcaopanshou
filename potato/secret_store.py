@@ -8,7 +8,7 @@ Security: All secrets are Fernet(AES-128-CBC+HMAC-SHA256) encrypted at rest.
 """
 from __future__ import annotations
 
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from threading import Lock
 from typing import Any, Iterator
@@ -27,6 +27,9 @@ except ImportError:
     _HAS_PSYCOPG2 = False
 
 from potato.vault import _encrypt, _decrypt
+
+import logging
+logger = logging.getLogger("potato.secret_store")
 
 SECRET_KEYS = (
     "CRDB_DATABASE_URL",

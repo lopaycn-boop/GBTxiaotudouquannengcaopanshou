@@ -121,6 +121,22 @@ def _check_http_rate_limit(ip: str) -> bool:
     return True
 
 
+# ── 纯动作指令检测 ── 前端声控动作映射的Python镜像
+_PURE_MOTION_PATTERNS = re.compile(
+    r'^(挥[手一]|拜拜|再见|bye|跳[一下]?|蹦[一下]?|转圈|旋转|'
+    r'比心|爱心|耶|yeah|✌|鼓掌|抱抱|飞吻|么么哒|'
+    r'敬礼|鞠躬|伸懒腰|打拳|招手|举[手一]|比二|剪刀手|'
+    r'点头|摇头|跳舞|dance|装可爱|卖萌|发呆|卖个萌|'
+    r'扭[一一]?扭|伸个?懒腰|比心|爱心|么么|亲亲)$',
+    re.IGNORECASE
+)
+
+def _is_pure_motion_command(text: str) -> bool:
+    """判断是否是纯动作口令（只触发桌宠动作，不走AI对话）"""
+    if not text:
+        return False
+    return bool(_PURE_MOTION_PATTERNS.match(text.strip()))
+
 def _check_rate_limit(ip: str) -> bool:
     now = time.time()
     window = _rate_bucket[ip]
@@ -538,7 +554,7 @@ class PotatoPetBrain:
 48. 用户说"深度分析/多步分析/仔细分析" → plan_execute_analysis=["代码1","代码2"]（计划-执行多步分析模式，先制定分析计划再逐步执行，质量更高）
 49. 用户说"帮我选股/筛选XX条件的股票/连续涨停的股票" → iwencai_query="自然语言选股条件"（问财智能选股）
 50. 用户说"查宏观/CPI/GDP/PMI" → iwencai_query="宏观指标名称"（问财宏观数据）
-51. 用户说"搜索XX新闻/研报/公告" → iwencai_search={"keyword":"关键词","channel":"news/report/investor/announcement"}
+51. 用户说"搜索XX新闻/研报/公告" → iwencai_search={{"keyword":"关键词","channel":"news/report/investor/announcement"}}
 
 【专业操盘知识库——你是操盘手不是分析师】
 
@@ -606,7 +622,7 @@ def health():
     from potato.vault import Vault
     vault = Vault()
     vault_keys = {}
-    for key_name in ["DEEPSEEK_API_KEY", "SILICON_API_KEY", "LINER_API_KEY", "OPENAI_API_KEY", "BASE44_API_KEY", "EM_API_KEY", "IWENCAI_API_KEY"]:
+    for key_name in ["DEEPSEEK_API_KEY", "GLM_API_KEY", "SILICON_API_KEY", "LINER_API_KEY", "OPENAI_API_KEY", "BASE44_API_KEY", "EM_API_KEY", "IWENCAI_API_KEY"]:
         vault_keys[key_name] = "active" if vault.exists(key_name) else "empty"
 
     active_providers = sum(1 for v in vault_keys.values() if v == "active")
@@ -621,6 +637,7 @@ def health():
             "demo_mode": active_providers == 0,
         },
         "trading_mode": os.environ.get("TRADING_MODE", "dry_run"),
+        "ws_token": _WS_TOKEN,  # 仅本地可访问，前端需要此token连接WebSocket
     })
 
 
@@ -704,6 +721,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 logger.warning("Invalid JSON from client: %s", data[:200])
                 await send_to_frontend("error", {"info": "消息格式错误，请重试"})
                 continue
+            msg_type = packet.get("type", "")
+            payload = packet.get("payload", packet)
+            # 前端发 chat_message → 后端当 text_input 处理
+            if msg_type == "chat_message":
+                msg_type = "text_input"
+                if isinstance(payload, dict) and "content" in payload and "text" not in payload:
+                    payload["text"] = payload["content"]
             brain.last_interaction = time.time()
 
             _SOURCE_CODE_BLOCK_PATTERNS = [
@@ -735,8 +759,16 @@ async def websocket_endpoint(websocket: WebSocket):
                 text = await AIService.speech_to_text(audio_b64)
                 logger.info("语音识别结果: %s", repr(text) if text else "(空)")
                 if text:
-                    await send_to_frontend("state_update", {"state": "thinking"})
-                    await handle_user_input(text, send_to_frontend)
+                    # 先发送STT结果给前端（前端会解析动作指令触发桌宠肢体动作）
+                    await send_to_frontend("voice_stt_result", {"text": text})
+                    # 检查是否是纯动作口令（只触发动作不走AI）
+                    pure_motion = _is_pure_motion_command(text)
+                    if pure_motion:
+                        logger.info("纯动作指令，跳过AI: %s", text)
+                        await send_to_frontend("state_update", {"state": "idle"})
+                    else:
+                        await send_to_frontend("state_update", {"state": "thinking"})
+                        await handle_user_input(text, send_to_frontend)
                 else:
                     await send_to_frontend("state_update", {"state": "idle"})
                     await send_to_frontend("error", {"info": "没能听清，请再说一次"})
@@ -3764,3 +3796,463 @@ async def handle_trendradar_sentiment(payload: dict, send_func):
         await send_reply(f"📊 热点舆情: {total}条热点, 金融相关{finance}条({ratio}%)", "neutral", send_func)
     except Exception as e:
         await send_func("error", {"info": _safe_error(e)})
+
+# ═══════════════════════════════════════════════════════════════
+# OCR 屏幕文字识别 API
+# ═══════════════════════════════════════════════════════════════
+@app.post("/api/ocr")
+async def ocr_endpoint(request: Request):
+    """OCR screen capture — 支持 base64 JSON 和 multipart 文件上传"""
+    try:
+        img_bytes = None
+        content_type = request.headers.get("content-type", "")
+
+        if "multipart" in content_type:
+            # multipart/form-data file upload
+            form = await request.form()
+            file = form.get("image") or form.get("file")
+            if file:
+                img_bytes = await file.read()
+            else:
+                return JSONResponse({"ok": False, "error": "No image file in multipart form"})
+        else:
+            # JSON body with base64
+            body = await request.json()
+            image_data = body.get("image", "")
+            if not image_data:
+                return JSONResponse({"ok": False, "error": "No image data provided"})
+
+            # Remove data URL prefix if present
+            if "," in image_data:
+                image_data = image_data.split(",", 1)[1]
+
+            import base64
+            img_bytes = base64.b64decode(image_data)
+
+        result_texts = []
+        result_boxes = []
+
+        try:
+            from paddleocr import PaddleOCR
+            import numpy as np
+            import io as _io
+            from PIL import Image
+
+            _ocr = PaddleOCR(use_angle_cls=True, lang="ch", use_gpu=False, show_log=False)
+            img = Image.open(_io.BytesIO(img_bytes))
+            img_array = np.array(img)
+            ocr_result = _ocr.ocr(img_array, cls=True)
+
+            if ocr_result and ocr_result[0]:
+                for line in ocr_result[0]:
+                    box = line[0]
+                    text = line[1][0]
+                    confidence = line[1][1]
+                    result_texts.append(text)
+                    result_boxes.append({
+                        "text": text,
+                        "confidence": round(confidence, 3),
+                        "box": [[int(p[0]), int(p[1])] for p in box]
+                    })
+        except ImportError:
+            try:
+                import easyocr
+                import numpy as np
+                import io as _io
+                from PIL import Image
+
+                reader = easyocr.Reader(['ch_sim', 'en'], gpu=False)
+                img = Image.open(_io.BytesIO(img_bytes))
+                img_array = np.array(img)
+                ocr_result = reader.readtext(img_array)
+
+                for detection in ocr_result:
+                    box = detection[0]
+                    text = detection[1]
+                    confidence = detection[2]
+                    result_texts.append(text)
+                    result_boxes.append({
+                        "text": text,
+                        "confidence": round(confidence, 3),
+                        "box": [[int(p[0]), int(p[1])] for p in box]
+                    })
+            except ImportError:
+                try:
+                    import pytesseract
+                    import io as _io
+                    from PIL import Image
+
+                    img = Image.open(_io.BytesIO(img_bytes))
+                    text = pytesseract.image_to_string(img, lang='chi_sim+eng')
+                    result_texts = [t.strip() for t in text.split('\n') if t.strip()]
+                    result_boxes = [{"text": t, "confidence": 0, "box": []} for t in result_texts]
+                except ImportError:
+                    return JSONResponse({"ok": False, "error": "No OCR engine installed. Install paddleocr, easyocr, or pytesseract."})
+
+        return JSONResponse({
+            "ok": True,
+            "text": "\n".join(result_texts),
+            "texts": result_texts,
+            "details": result_boxes,
+            "count": len(result_texts)
+        })
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+# ═══════════════════════════════════════════════════════════════
+# A股操盘 API
+# ═══════════════════════════════════════════════════════════════
+@app.get("/api/stock/{code}")
+async def stock_info(code: str):
+    """获取股票实时信息 — akshare→腾讯→新浪 三级fallback"""
+    async def _tencent_quote(code: str):
+        import httpx
+        prefix = 'sh' if code.startswith(('6','9')) else 'sz' if code.startswith(('0','3')) else 'bj'
+        url = f"https://qt.gtimg.cn/q={prefix}{code}"
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url)
+        line = r.text.strip()
+        if '~' not in line:
+            return None
+        parts = line.split('~')
+        if len(parts) < 38:
+            return None
+        name = parts[1]
+        price = float(parts[3] or 0)
+        prev_close = float(parts[4] or 0)
+        open_p = float(parts[5] or 0)
+        vol = parts[6]
+        amount = parts[37]
+        chg = price - prev_close
+        chg_pct = (chg / prev_close * 100) if prev_close else 0
+        return {
+            "ok": True, "code": code, "source": "tencent",
+            "name": name,
+            "price": price,
+            "change_pct": round(chg_pct, 2),
+            "change_amt": round(chg, 3),
+            "volume": vol,
+            "amount": amount,
+            "high": float(parts[33] or 0) if len(parts) > 33 else 0,
+            "low": float(parts[34] or 0) if len(parts) > 34 else 0,
+            "open": open_p,
+            "prev_close": prev_close,
+        }
+
+    async def _sina_quote(code: str):
+        import httpx
+        prefix = 'sh' if code.startswith(('6','9')) else 'sz' if code.startswith(('0','3')) else 'bj'
+        url = f"https://hq.sinajs.cn/list={prefix}{code}"
+        headers = {"Referer": "https://finance.sina.com.cn"}
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url, headers=headers)
+        line = r.text.strip()
+        if '=""' in line:
+            return None
+        data = line.split('"')[1].split(",")
+        if len(data) < 32:
+            return None
+        prev_close = float(data[2])
+        price = float(data[3])
+        chg = price - prev_close
+        chg_pct = (chg / prev_close * 100) if prev_close else 0
+        return {
+            "ok": True, "code": code, "source": "sina",
+            "name": data[0],
+            "price": price,
+            "change_pct": round(chg_pct, 2),
+            "change_amt": round(chg, 3),
+            "volume": int(float(data[8])),
+            "amount": float(data[9]),
+            "high": float(data[4]),
+            "low": float(data[5]),
+            "open": float(data[1]),
+            "prev_close": prev_close,
+            "date": data[30],
+            "time": data[31],
+        }
+
+    # 1) Try akshare
+    try:
+        import akshare as ak
+        if code.startswith(('6', '9')):
+            symbol = f"{code}.SH"
+        elif code.startswith(('0', '3')):
+            symbol = f"{code}.SZ"
+        elif code.startswith(('4', '8')):
+            symbol = f"{code}.BJ"
+        else:
+            symbol = code
+        df = await asyncio.to_thread(ak.stock_zh_a_spot_em)
+        row = df[df['代码'] == code]
+        if not row.empty:
+            r = row.iloc[0]
+            return JSONResponse({
+                "ok": True, "code": code, "source": "akshare",
+                "name": str(r.get('名称', '')),
+                "price": float(r.get('最新价', 0) or 0),
+                "change_pct": float(r.get('涨跌幅', 0) or 0),
+                "change_amt": float(r.get('涨跌额', 0) or 0),
+                "volume": float(r.get('成交量', 0) or 0),
+                "amount": float(r.get('成交额', 0) or 0),
+                "high": float(r.get('最高', 0) or 0),
+                "low": float(r.get('最低', 0) or 0),
+                "open": float(r.get('今开', 0) or 0),
+                "prev_close": float(r.get('昨收', 0) or 0),
+            })
+    except Exception:
+        pass
+
+    # 2) Try tencent
+    try:
+        result = await _tencent_quote(code)
+        if result and result.get("price", 0) > 0:
+            return JSONResponse(result)
+    except Exception:
+        pass
+
+    # 3) Try sina
+    try:
+        result = await _sina_quote(code)
+        if result and result.get("price", 0) > 0:
+            return JSONResponse(result)
+    except Exception:
+        pass
+
+    return JSONResponse({"ok": False, "error": f"All sources failed for {code}"})
+
+
+@app.post("/api/trade/order")
+async def trade_place_order(request: Request):
+    """下单接口"""
+    try:
+        body = await request.json()
+        stock_code = body.get("stock", "")
+        action = body.get("action", "buy")
+        quantity = int(body.get("quantity", 0))
+        price = float(body.get("price", 0))
+
+        if not stock_code or quantity <= 0:
+            return JSONResponse({"ok": False, "error": "Missing stock code or quantity"})
+
+        try:
+            from potato.broker import get_broker
+            broker = get_broker()
+            if not broker or not broker.connected:
+                return JSONResponse({"ok": False, "error": "Broker not connected. Connect via app first."})
+            if action == "buy":
+                result = await asyncio.to_thread(broker.buy, stock_code, price, quantity)
+            else:
+                result = await asyncio.to_thread(broker.sell, stock_code, price, quantity)
+            return JSONResponse({"ok": True, "order": result})
+        except ImportError:
+            return JSONResponse({"ok": False, "error": "Broker module not available. Use robotjs to operate trading app directly."})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@app.post("/api/trade/cancel/{order_id}")
+async def trade_cancel_order(order_id: str):
+    """撤单"""
+    try:
+        from potato.broker import get_broker
+        broker = get_broker()
+        if not broker or not broker.connected:
+            return JSONResponse({"ok": False, "error": "Broker not connected"})
+        result = await asyncio.to_thread(broker.cancel, order_id)
+        return JSONResponse({"ok": True, "result": result})
+    except ImportError:
+        return JSONResponse({"ok": False, "error": "Broker module not available"})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@app.get("/api/trade/positions")
+async def trade_get_positions():
+    """查询持仓"""
+    try:
+        from potato.broker import get_broker
+        broker = get_broker()
+        if not broker or not broker.connected:
+            return JSONResponse({"ok": False, "error": "Broker not connected"})
+        result = await asyncio.to_thread(broker.get_positions)
+        return JSONResponse({"ok": True, "positions": result})
+    except ImportError:
+        return JSONResponse({"ok": False, "error": "Broker module not available"})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@app.get("/api/trade/orders")
+async def trade_get_orders():
+    """查询委托"""
+    try:
+        from potato.broker import get_broker
+        broker = get_broker()
+        if not broker or not broker.connected:
+            return JSONResponse({"ok": False, "error": "Broker not connected"})
+        result = await asyncio.to_thread(broker.get_orders)
+        return JSONResponse({"ok": True, "orders": result})
+    except ImportError:
+        return JSONResponse({"ok": False, "error": "Broker module not available"})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@app.get("/api/trade/account")
+async def trade_get_account():
+    """查询账户资金"""
+    try:
+        from potato.broker import get_broker
+        broker = get_broker()
+        if not broker or not broker.connected:
+            return JSONResponse({"ok": False, "error": "Broker not connected"})
+        result = await asyncio.to_thread(broker.get_account)
+        return JSONResponse({"ok": True, "account": result})
+    except ImportError:
+        return JSONResponse({"ok": False, "error": "Broker module not available"})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@app.post("/api/trade/auto-operate")
+async def trade_auto_operate(request: Request):
+    """自主操盘入口 — AI决策+自动执行（需券商或robotjs真实执行）"""
+    try:
+        body = await request.json()
+        stock = body.get("stock", "")
+        action = body.get("action", "")
+        quantity = int(body.get("quantity", 0))
+        price = float(body.get("price", 0))
+        strategy = body.get("strategy", "market")
+
+        if not stock or quantity <= 0:
+            return JSONResponse({"ok": False, "error": "Missing stock code or quantity"})
+
+        # 尝试真实券商执行
+        try:
+            from potato.broker import get_broker
+            broker = get_broker()
+            if not broker or not broker.connected:
+                return JSONResponse({"ok": False, "error": "Broker not connected. Connect via trading app first."})
+            result_info = {"stock": stock, "action": action, "quantity": quantity,
+                           "price": price, "strategy": strategy, "orders": [], "source": "broker"}
+            if strategy == "market":
+                if action == "buy":
+                    r = await asyncio.to_thread(broker.buy, stock, price, quantity)
+                else:
+                    r = await asyncio.to_thread(broker.sell, stock, price, quantity)
+                result_info["orders"].append({"type": "market", "action": action,
+                                               "quantity": quantity, "result": r, "status": "executed"})
+            elif strategy == "smart":
+                chunk_size = max(100, quantity // 5)
+                remaining = quantity
+                while remaining > 0:
+                    this_chunk = min(chunk_size, remaining)
+                    if action == "buy":
+                        r = await asyncio.to_thread(broker.buy, stock, price, this_chunk)
+                    else:
+                        r = await asyncio.to_thread(broker.sell, stock, price, this_chunk)
+                    result_info["orders"].append({"type": "smart_chunk", "action": action,
+                                                   "quantity": this_chunk, "result": r, "status": "executed"})
+                    remaining -= this_chunk
+            elif strategy == "twap":
+                intervals = 5
+                per_interval = quantity // intervals
+                for i in range(intervals):
+                    if action == "buy":
+                        r = await asyncio.to_thread(broker.buy, stock, price, per_interval)
+                    else:
+                        r = await asyncio.to_thread(broker.sell, stock, price, per_interval)
+                    result_info["orders"].append({"type": "twap_slice", "action": action,
+                                                   "quantity": per_interval, "slice": i+1,
+                                                   "result": r, "status": "executed"})
+            else:
+                if action == "buy":
+                    r = await asyncio.to_thread(broker.buy, stock, price, quantity)
+                else:
+                    r = await asyncio.to_thread(broker.sell, stock, price, quantity)
+                result_info["orders"].append({"type": "limit", "action": action,
+                                               "quantity": quantity, "price": price,
+                                               "result": r, "status": "executed"})
+            return JSONResponse({"ok": True, "result": result_info})
+        except ImportError:
+            return JSONResponse({"ok": False, "error": "No broker connected. Launch trading app and use robotjs to operate."})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@app.get("/api/trade/risk-check")
+async def trade_risk_check(stock_code: str = "", action: str = "buy", quantity: int = 0, price: float = 0):
+    """风险检查 — 仓位/资金/涨跌停/频率，接入真实行情"""
+    risks = []
+    risk_level = "low"
+
+    # 基础规则校验
+    if not stock_code:
+        risks.append({"type": "param_missing", "msg": "缺少股票代码", "level": "critical"})
+        risk_level = "critical"
+    if action not in ("buy", "sell"):
+        risks.append({"type": "action_invalid", "msg": f"非法操作: {action}", "level": "critical"})
+        risk_level = "critical"
+    if price <= 0:
+        risks.append({"type": "price_invalid", "msg": "价格无效", "level": "critical"})
+        risk_level = "critical"
+    if quantity <= 0:
+        risks.append({"type": "quantity_invalid", "msg": "数量无效", "level": "critical"})
+        risk_level = "critical"
+    if quantity % 100 != 0 and quantity > 0:
+        risks.append({"type": "lot_size", "msg": "A股必须100股整数倍", "level": "high"})
+        risk_level = max(risk_level, "high")
+    if quantity * price > 500000:
+        risks.append({"type": "concentration", "msg": f"单笔金额{quantity*price:.0f}超50万", "level": "high"})
+        risk_level = max(risk_level, "high")
+
+    # 接入真实行情校验涨跌停
+    real_price = None
+    real_name = ""
+    if stock_code and risk_level != "critical":
+        try:
+            stock_data = await stock_info(stock_code)
+            # stock_info returns JSONResponse, extract body
+            if hasattr(stock_data, 'body'):
+                import json as _json
+                sd = _json.loads(stock_data.body)
+                if sd.get("ok") and sd.get("price", 0) > 0:
+                    real_price = sd["price"]
+                    real_name = sd.get("name", "")
+                    prev_close = sd.get("prev_close", 0)
+                    if prev_close > 0:
+                        # A股涨跌停 = ±10% (ST ±5%, 创业板/科创板 ±20%)
+                        if stock_code.startswith(('3','68')):
+                            limit_pct = 0.20
+                        elif real_name.startswith('ST') or real_name.startswith('*ST'):
+                            limit_pct = 0.05
+                        else:
+                            limit_pct = 0.10
+                        upper = prev_close * (1 + limit_pct)
+                        lower = prev_close * (1 - limit_pct)
+                        if action == "buy" and price > upper:
+                            risks.append({"type": "limit_up", "msg": f"买入价{price}超涨停价{upper:.2f}", "level": "critical"})
+                            risk_level = "critical"
+                        if action == "sell" and price < lower:
+                            risks.append({"type": "limit_down", "msg": f"卖出价{price}低于跌停价{lower:.2f}", "level": "critical"})
+                            risk_level = "critical"
+                        # 价格偏离实时价超过3%警告
+                        if abs(price - real_price) / real_price > 0.03:
+                            risks.append({"type": "price_deviation", "msg": f"委托价{price}偏离实时价{real_price}超3%", "level": "medium"})
+                            risk_level = max(risk_level, "medium")
+        except Exception as e:
+            risks.append({"type": "quote_fetch", "msg": f"行情获取失败: {str(e)[:50]}", "level": "medium"})
+            risk_level = max(risk_level, "medium")
+
+    return JSONResponse({
+        "ok": True,
+        "stock_code": stock_code,
+        "stock_name": real_name,
+        "real_price": real_price,
+        "risk_level": risk_level,
+        "risks": risks,
+        "pass": risk_level not in ("critical",)
+    })

@@ -35,7 +35,6 @@ from potato.credentials import CredentialsPlugin
 from potato.db import Database
 from potato.llm import chat
 from potato.risk import RiskState, RiskValidator, TradeRequest
-from potato.security import mask_secret
 from potato.user_prefs import UserPrefs
 
 logger = logging.getLogger("potato.browser_cycle")
@@ -121,7 +120,7 @@ async def run_browser_cycle(run_id: str | None = None) -> dict[str, Any]:
 
             for platform in platforms:
                 mode = platform_modes[platform.platform_id]
-                cfg = registry.get(platform.platform_id)
+                _cfg = registry.get(platform.platform_id)
 
                 if mode == "autonomous":
                     credentials = cred_plugin.get_decoded_credentials(platform.platform_id)
@@ -186,7 +185,7 @@ async def run_browser_cycle(run_id: str | None = None) -> dict[str, Any]:
         summary["steps"].append({"portfolio_read": len(portfolio_texts)})
 
         # Step 6: AI deep analysis
-        mode_desc = "; ".join(f"{p.name}={platform_modes[p.platform_id]}" for p in platforms)
+        _mode_desc = "; ".join(f"{p.name}={platform_modes[p.platform_id]}" for p in platforms)
         analysis_result = await analyze_stocks(
             news=news,
             portfolio_text=combined_portfolio,

@@ -61,7 +61,7 @@ def verify():
 
     # Vault keys
     try:
-        from potato.vault import Vault, KNOWN_KEYS
+        from potato.vault import Vault
         vault = Vault()
         active = 0
         for key_name in ["DEEPSEEK_API_KEY", "SILICON_API_KEY", "LINER_API_KEY", "OPENAI_API_KEY", "BASE44_API_KEY", "EM_API_KEY", "IWENCAI_API_KEY"]:
@@ -104,7 +104,7 @@ def verify():
     if warnings:
         print(f"  ⚠️ {len(warnings)} 个警告(可选模块)")
     if not errors:
-        print(f"  ✅ 所有核心组件验证通过！")
+        print("  ✅ 所有核心组件验证通过！")
 
     return len(errors) == 0
 

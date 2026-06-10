@@ -26,7 +26,7 @@ export default function usePerformanceMonitor(intervalMs = 2000) {
         if (performance.memory) {
           setMemory(Math.round(performance.memory.usedJSHeapSize / 1048576));
         }
-      } catch {}
+      } catch { /* empty */ }
     }, intervalMs);
 
     return () => {

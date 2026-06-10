@@ -82,19 +82,59 @@ downloadFile(PYTHON_URL, ZIP_FILE, (err) => {
     process.exit(1);
   }
 
-  // 7. 升级 pip
-  console.log('🔄 升级 pip...');
+  // 7. 解锁嵌入式 Python 的 site-packages 和 pip
+  console.log('🔧 解锁嵌入式 Python...');
+  const pthFile = path.join(PYTHON_DIR, `python${PYTHON_VERSION.split('.').slice(0,2).join('')}._pth`);
+  const libDir = path.join(PYTHON_DIR, 'Lib');
+  const sitePackagesDir = path.join(libDir, 'site-packages');
+
+  if (!fs.existsSync(libDir)) fs.mkdirSync(libDir, { recursive: true });
+  if (!fs.existsSync(sitePackagesDir)) fs.mkdirSync(sitePackagesDir, { recursive: true });
+
+  if (fs.existsSync(pthFile)) {
+    let pthContent = fs.readFileSync(pthFile, 'utf-8');
+    if (pthContent.includes('#import site') || !pthContent.includes('import site')) {
+      pthContent = pthContent.replace('#import site', 'import site');
+      if (!pthContent.includes('Lib\\site-packages')) {
+        pthContent = pthContent.trimEnd() + '\nLib\nLib\\site-packages\n';
+      }
+      fs.writeFileSync(pthFile, pthContent);
+      console.log('✅ 已解锁 import site 和 site-packages\n');
+    }
+  }
+
+  // 8. 安装 pip (get-pip.py)
+  console.log('📦 安装 pip...');
+  const getPipPath = path.join(PYTHON_DIR, 'get-pip.py');
   try {
-    execSync(`"${PYTHON_EXE}" -m pip install --upgrade pip setuptools wheel`, {
+    execSync(`"${PYTHON_EXE}" -m pip --version`, { stdio: 'pipe', timeout: 10000 });
+    console.log('✅ pip 已存在\n');
+  } catch (_) {
+    console.log('   下载 get-pip.py...');
+    try {
+      execSync(`curl -sS https://bootstrap.pypa.io/get-pip.py -o "${getPipPath}"`, { stdio: 'inherit', timeout: 60000 });
+      execSync(`"${PYTHON_EXE}" "${getPipPath}" --no-warn-script-location`, { stdio: 'inherit', timeout: 120000 });
+      try { fs.unlinkSync(getPipPath); } catch (_) {}
+      console.log('✅ pip 安装完成\n');
+    } catch (e) {
+      console.error(`❌ pip 安装失败: ${e.message}\n`);
+      process.exit(1);
+    }
+  }
+
+  // 9. 安装 setuptools + wheel
+  console.log('📦 安装 setuptools + wheel...');
+  try {
+    execSync(`"${PYTHON_EXE}" -m pip install setuptools wheel --no-warn-script-location`, {
       stdio: 'inherit',
       timeout: 120000,
     });
-    console.log('✅ pip 已升级\n');
+    console.log('✅ setuptools + wheel 已安装\n');
   } catch (e) {
-    console.warn(`⚠️  pip 升级失败（非关键）: ${e.message}\n`);
+    console.warn(`⚠️  安装失败: ${e.message}\n`);
   }
 
-  // 8. 安装后端依赖
+  // 10. 安装后端依赖
   console.log('📦 安装后端依赖...');
   const backendReqFile = path.join(__dirname, '..', 'backend', 'requirements.txt');
   const rootReqFile = path.join(__dirname, '..', '..', 'requirements.txt');
@@ -111,7 +151,7 @@ downloadFile(PYTHON_URL, ZIP_FILE, (err) => {
         `"${PYTHON_EXE}" -m pip install -r "${reqFile}" --no-warn-script-location`,
         {
           stdio: 'inherit',
-          timeout: 300000, // 5 分钟
+          timeout: 600000, // 10 分钟（chromadb等大包需要更长时间）
         }
       );
       console.log('✅ 依赖安装完成\n');
@@ -121,6 +161,18 @@ downloadFile(PYTHON_URL, ZIP_FILE, (err) => {
       console.log(`   "${PYTHON_EXE}" -m pip install -r "${reqFile}"\n`);
       process.exit(1);
     }
+  }
+
+  // 11. 验证关键模块
+  console.log('🔍 验证关键模块...');
+  try {
+    const testCode = 'import fastapi, uvicorn, openai, chromadb, tiktoken, httpx, aiohttp, cryptography, edge_tts, numpy, PIL; print("ALL_OK")';
+    const result = execSync(`"${PYTHON_EXE}" -c "${testCode}"`, { stdio: 'pipe', timeout: 30000 });
+    if (result.toString().trim() === 'ALL_OK') {
+      console.log('✅ 所有关键模块验证通过\n');
+    }
+  } catch (e) {
+    console.warn(`⚠️  模块验证失败: ${e.message}\n`);
   }
 
   console.log('═══════════════════════════════════════════════════════');

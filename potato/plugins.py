@@ -33,15 +33,16 @@ Usage:
 """
 from __future__ import annotations
 
-import json
+import ipaddress
 import logging
 import os
 import re
 import shutil
+import socket
 import subprocess
-import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -301,6 +302,30 @@ _DEEPAUDIT_URL_KEY = "DEEPAUDIT_API_URL"
 _DEEPAUDIT_URL = os.environ.get(_DEEPAUDIT_URL_KEY, "http://localhost:8000/api/v1")
 
 
+def _validate_api_url(url: str) -> bool:
+    """Reject URLs that resolve to private/internal IP addresses.
+
+    Blocks: 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16
+    """
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        # Resolve hostname to IP
+        resolved = socket.getaddrinfo(hostname, parsed.port or 80, socket.AF_INET, socket.SOCK_STREAM)
+        for entry in resolved:
+            ip_str = entry[4][0]
+            ip = ipaddress.ip_address(ip_str)
+            if ip.is_private or ip.is_loopback or ip.is_link_local:
+                logger.warning("Blocked DeepAudit API URL resolving to private IP: %s -> %s", url, ip_str)
+                return False
+        return True
+    except Exception as exc:
+        logger.warning("Failed to validate API URL %s: %s", url, exc)
+        return False
+
+
 def _deepaudit_available() -> bool:
     if _ais_available():
         return True
@@ -347,7 +372,7 @@ def _deepaudit_snippet(params: dict[str, Any]) -> dict[str, Any]:
     dimensions = params.get("dimensions", ["bug", "security", "performance", "style", "maintainability"])
 
     api_url = os.environ.get(_DEEPAUDIT_URL_KEY, "")
-    if api_url:
+    if api_url and _validate_api_url(api_url):
         try:
             client = httpx.Client(timeout=_TIMEOUT)
             resp = client.post(
@@ -380,7 +405,7 @@ def _deepaudit_repo(params: dict[str, Any]) -> dict[str, Any]:
     branch = params.get("branch", "main")
     api_url = os.environ.get(_DEEPAUDIT_URL_KEY, "")
 
-    if api_url:
+    if api_url and _validate_api_url(api_url):
         try:
             client = httpx.Client(timeout=_TIMEOUT)
             resp = client.post(
@@ -415,6 +440,15 @@ def _deepaudit_file(params: dict[str, Any]) -> dict[str, Any]:
     if not file_path or not os.path.isfile(file_path):
         return {"ok": False, "plugin": "deepaudit", "action": "audit_file", "error": f"File not found: {file_path}"}
 
+    # H2: Only allow reading files under the project root directory
+    _PROJECT_ROOT = os.path.realpath(
+        os.getenv("POTATO_DATA_DIR", os.path.join(os.path.dirname(__file__), ".."))
+    )
+    real_path = os.path.realpath(file_path)
+    if not real_path.startswith(_PROJECT_ROOT + os.sep) and real_path != _PROJECT_ROOT:
+        return {"ok": False, "plugin": "deepaudit", "action": "audit_file",
+                "error": f"Access denied: file outside project root: {file_path}"}
+
     ext = os.path.splitext(file_path)[1].lstrip(".")
     lang_map = {"py": "python", "js": "javascript", "ts": "typescript", "go": "go", "rs": "rust", "java": "java", "rb": "ruby", "cpp": "cpp", "c": "c", "cs": "csharp"}
     language = lang_map.get(ext, ext)
@@ -439,6 +473,9 @@ def _deepaudit_status(params: dict[str, Any]) -> dict[str, Any]:
     api_url = os.environ.get(_DEEPAUDIT_URL_KEY, "")
     if not api_url or not task_id:
         return {"ok": False, "plugin": "deepaudit", "action": "status", "error": "Missing task_id or DEEPAUDIT_API_URL"}
+
+    if not _validate_api_url(api_url):
+        return {"ok": False, "plugin": "deepaudit", "action": "status", "error": "API URL rejected: resolves to private IP"}
 
     try:
         client = httpx.Client(timeout=_TIMEOUT)

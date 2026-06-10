@@ -19,12 +19,30 @@ import io
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import time
 from typing import Any
 
 logger = logging.getLogger("potato.vision")
+
+# ── Security: dangerous hotkey combinations and text patterns ──
+
+_DANGEROUS_HOTKEYS: set[frozenset[str]] = {
+    frozenset({"win", "r"}),
+    frozenset({"ctrl", "alt", "delete"}),
+    frozenset({"alt", "f4"}),
+    frozenset({"win", "l"}),
+    frozenset({"ctrl", "shift", "escape"}),
+}
+
+_DANGEROUS_TEXT_PATTERNS = re.compile(
+    r"cmd\.exe|powershell|bash|rm\s+-rf|del\s+/s|format\s+/|net\s+user|reg\s+add",
+    re.IGNORECASE,
+)
+
+_MAX_TYPE_TEXT_LENGTH = 500
 
 
 def _safe_import_pyautogui():
@@ -332,9 +350,25 @@ async def visual_operate(
         if action_type == "click" and action.get("x") is not None:
             action_result.update(gui_click(int(action["x"]), int(action["y"])))
         elif action_type == "type" and action.get("text"):
-            action_result.update(gui_type_text(action["text"]))
+            text = action["text"]
+            # Security: length check
+            if len(text) > _MAX_TYPE_TEXT_LENGTH:
+                logger.warning("Blocked gui_type_text: text too long (%d chars, max %d)", len(text), _MAX_TYPE_TEXT_LENGTH)
+                action_result["error"] = f"blocked: text too long ({len(text)} chars)"
+            # Security: dangerous command pattern check
+            elif _DANGEROUS_TEXT_PATTERNS.search(text):
+                logger.warning("Blocked gui_type_text: matches dangerous command pattern: %s", text[:80])
+                action_result["error"] = "blocked: dangerous command pattern"
+            else:
+                action_result.update(gui_type_text(text))
         elif action_type == "hotkey" and action.get("keys"):
-            action_result.update(gui_hotkey(*action["keys"]))
+            keys = action["keys"]
+            # Security: dangerous hotkey combination check
+            if frozenset(k.lower() for k in keys) in _DANGEROUS_HOTKEYS:
+                logger.warning("Blocked gui_hotkey: dangerous combination %s", keys)
+                action_result["error"] = f"blocked: dangerous hotkey combination {keys}"
+            else:
+                action_result.update(gui_hotkey(*keys))
         elif action_type == "scroll" and action.get("clicks") is not None:
             action_result.update(gui_scroll(int(action["clicks"]), action.get("x"), action.get("y")))
         elif action_type == "wait":

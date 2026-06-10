@@ -232,7 +232,7 @@ class CredentialsPlugin:
         Only returns metadata (field names, modes, timestamps).
         """
         creds = self.list_all()
-        encryption_active = _get_cipher() is not None and _get_cipher() != "FALLBACK"
+        _encryption_active = _get_cipher() is not None and _get_cipher() != "FALLBACK"
         status = {}
         for c in creds:
             status[c.platform_id] = {

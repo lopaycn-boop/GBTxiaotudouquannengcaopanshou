@@ -20,7 +20,6 @@ import logging
 import os
 import tempfile
 import wave
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("potato.voice")
@@ -192,6 +191,16 @@ async def _get_rapid_model():
             download_hf_model(repo_id="SWHL/RapidParaformer", save_dir=str(model_dir))
 
         if config_path.exists():
+            # H6: Log model file hashes for supply-chain audit trail
+            try:
+                import hashlib
+                _model_files = list((model_dir / "resources").rglob("*"))
+                for mf in _model_files[:5]:
+                    if mf.is_file() and mf.stat().st_size < 100_000_000:
+                        h = hashlib.sha256(mf.read_bytes()).hexdigest()[:16]
+                        logger.info("RapidASR model file: %s sha256=%s... size=%d", mf.name, h, mf.stat().st_size)
+            except Exception:
+                pass
             _rapid_model = RapidParaformer(str(config_path))
             logger.info("RapidASR model loaded (local Paraformer)")
             return _rapid_model
@@ -216,7 +225,6 @@ async def stt_rapid(audio_bytes: bytes, sample_rate: int = 16000) -> str:
         return ""
 
     try:
-        import numpy as np
 
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             tmp_path = f.name
@@ -230,7 +238,6 @@ async def stt_rapid(audio_bytes: bytes, sample_rate: int = 16000) -> str:
                     wf.writeframes(audio_bytes)
 
         result = model(tmp_path)
-        os.unlink(tmp_path)
 
         if isinstance(result, list):
             return " ".join(result)
@@ -238,6 +245,13 @@ async def stt_rapid(audio_bytes: bytes, sample_rate: int = 16000) -> str:
     except Exception as e:
         logger.warning("RapidASR recognition failed: %s", e)
         return ""
+    finally:
+        # M2: Always clean up temp file
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 # ── STT: SiliconFlow SenseVoice (fallback, cloud) ──

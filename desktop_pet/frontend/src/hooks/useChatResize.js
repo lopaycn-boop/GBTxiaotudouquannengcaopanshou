@@ -12,7 +12,7 @@ export default function useChatResize(defaultWidth = 380) {
         const w = parseInt(saved, 10);
         if (w >= MIN_WIDTH && w <= MAX_WIDTH) return w;
       }
-    } catch {}
+    } catch { /* empty */ }
     return defaultWidth;
   });
 
@@ -41,7 +41,7 @@ export default function useChatResize(defaultWidth = 380) {
       dragging.current = false;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      try { localStorage.setItem(STORAGE_KEY, String(width)); } catch {}
+      try { localStorage.setItem(STORAGE_KEY, String(width)); } catch { /* empty */ }
     };
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);

@@ -1,5 +1,5 @@
-import React from 'react';
 
+import PropTypes from 'prop-types';
 const SHORTCUTS = [
   { keys: ['Ctrl', 'K'], desc: '命令面板', descEn: 'Command Palette' },
   { keys: ['Ctrl', 'Enter'], desc: '发送消息', descEn: 'Send message' },
@@ -62,3 +62,8 @@ export default function KeyboardHelp({ lang = 'zh', onClose }) {
     </div>
   );
 }
+
+KeyboardHelp.propTypes = {
+  lang: PropTypes.string,
+  onClose: PropTypes.func
+};

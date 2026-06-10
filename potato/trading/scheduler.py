@@ -14,7 +14,6 @@ Every step is broadcast to the frontend for transparency.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from datetime import datetime, time, timezone, timedelta
 from typing import Any
@@ -22,7 +21,6 @@ from typing import Any
 from potato.trading.analyzer import (
     deep_analysis,
     fetch_realtime_quote,
-    fetch_kline,
     format_trade_decision_for_pet,
     format_trade_signal_message,
 )
@@ -34,11 +32,9 @@ from potato.eastmoney import (
     get_hot_tables,
     get_realtime_quote as em_get_realtime_quote,
 )
-from potato.iwencai import IwencaiClient, format_iwencai_to_text
+from potato.iwencai import IwencaiClient
 from potato.trading.executor import TradeDecision, TradeExecutor
 from potato.trading.journal import TradeJournal
-from potato.risk import RiskValidator, RiskState, TradeRequest, SAFETY_RULES
-from potato.user_prefs import UserPrefs
 from decimal import Decimal
 
 logger = logging.getLogger("potato.trading.scheduler")
@@ -66,7 +62,7 @@ def _is_trading_day(dt: datetime | None = None) -> bool:
 
 async def _gather_eastmoney_context(symbols: list[str]) -> str:
     blocks = []
-    em = EastMoneyClient()
+    EastMoneyClient()
     try:
         for symbol in symbols[:5]:
             q = await asyncio.to_thread(em_get_realtime_quote, symbol)
@@ -460,7 +456,7 @@ class TradingScheduler:
         if not symbols:
             symbols = ["600519", "000858", "601318"]
 
-        await self._emit_step("open_analysis", "running", f"抓取资讯中...")
+        await self._emit_step("open_analysis", "running", "抓取资讯中...")
 
         news_items = []
         try:
@@ -648,7 +644,7 @@ class TradingScheduler:
 
         summary = f"📊 午间复盘：{len(positions)}只持仓\n" + "\n".join(pos_lines)
         if alert_lines:
-            summary += f"\n\n⚠️ 触发信号：\n" + "\n".join(alert_lines)
+            summary += "\n\n⚠️ 触发信号：\n" + "\n".join(alert_lines)
             summary += "\n\nAI正在自动处理触发信号..."
 
         await self._emit("chat", {

@@ -1,16 +1,9 @@
 import { useLayoutEffect, useRef, forwardRef, useImperativeHandle, useState, useEffect } from 'react'
 import { getModelConfig } from './modelRegistry'
 
-const LIVE2D_CORE_LOADED = new Promise((resolve) => {
-  const existing = document.getElementById('live2d-core-sdk')
-  if (existing) { resolve(); return }
-  const script = document.createElement('script')
-  script.id = 'live2d-core-sdk'
-  script.src = './libs/live2dcubismcore.min.js'
-  script.onload = resolve
-  script.onerror = () => { console.warn('Live2D core SDK failed to load'); resolve() }
-  document.head.appendChild(script)
-})
+// Live2D Cubism Core SDK is loaded synchronously via <script> in index.html
+// (before this module). We keep a resolved promise for backward compat.
+const LIVE2D_CORE_LOADED = Promise.resolve()
 
 const FALLBACK_EXPRESSIONS = {
   '开心': 'F01',
@@ -70,7 +63,7 @@ const Live2DDisplay = forwardRef(({ modelId }, ref) => {
       } else {
         setTimeout(() => {
           if (modelRef.current) {
-            try { modelRef.current.expression() } catch {}
+            try { modelRef.current.expression() } catch { /* empty */ }
           }
         }, 200)
       }
@@ -81,6 +74,46 @@ const Live2DDisplay = forwardRef(({ modelId }, ref) => {
         modelRef.current.autoInteract = enabled
         modelRef.current.internalModel.motionManager.settings.autoAddRandomMotion = enabled
         console.log(`模型跟踪功能已${enabled ? '开启' : '关闭'}~`)
+      }
+    },
+
+    playMotion: (group, index = 0) => {
+      if (!modelRef.current) return
+      try {
+        modelRef.current.motion(group, index)
+        console.log(`[Live2D] playMotion: group=${group} index=${index}`)
+      } catch (e) {
+        console.warn(`[Live2D] playMotion failed:`, e)
+      }
+    },
+
+    playMotionByName: (motionName) => {
+      if (!modelRef.current) return
+      try {
+        // pixi-live2d-display: motion(group, index) — group is the motion key in model3.json
+        const manager = modelRef.current.internalModel.motionManager
+        const settings = manager.settings
+        // Try direct group match
+        if (settings.motions && settings.motions[motionName]) {
+          modelRef.current.motion(motionName, 0)
+          console.log(`[Live2D] playMotionByName: ${motionName}`)
+          return
+        }
+        // Fuzzy match: try lowercase, try partial
+        const allGroups = Object.keys(settings.motions || {})
+        const match = allGroups.find(g =>
+          g.toLowerCase() === motionName.toLowerCase() ||
+          g.toLowerCase().includes(motionName.toLowerCase()) ||
+          motionName.toLowerCase().includes(g.toLowerCase())
+        )
+        if (match) {
+          modelRef.current.motion(match, 0)
+          console.log(`[Live2D] playMotionByName fuzzy: ${motionName} → ${match}`)
+          return
+        }
+        console.warn(`[Live2D] motion not found: ${motionName}, available: ${allGroups.join(', ')}`)
+      } catch (e) {
+        console.warn(`[Live2D] playMotionByName failed:`, e)
       }
     },
 
@@ -104,11 +137,11 @@ const Live2DDisplay = forwardRef(({ modelId }, ref) => {
     }
 
     if (modelRef.current) {
-      try { modelRef.current.destroy() } catch {}
+      try { modelRef.current.destroy() } catch { /* empty */ }
       modelRef.current = null
     }
     if (appRef.current) {
-      try { appRef.current.stage.removeChildren() } catch {}
+      try { appRef.current.stage.removeChildren() } catch { /* empty */ }
     }
 
     currentModelIdRef.current = targetModelId
@@ -119,6 +152,9 @@ const Live2DDisplay = forwardRef(({ modelId }, ref) => {
 
       window.PIXI = PIXI
 
+      // file:// protocol blocks fetch() — but app:// (custom Electron protocol)
+      // and http:// both support fetch(), so use the path as-is.
+      // Only prepend '.' for raw file:// (which should no longer occur).
       const basePath = window.location.protocol === 'file:'
         ? '.' + config.path
         : config.path
@@ -155,7 +191,7 @@ const Live2DDisplay = forwardRef(({ modelId }, ref) => {
           const cdiData = await cdiResp.json()
           if (cdiData.Expressions && cdiData.Expressions.length > 0) {
             const autoMap = {}
-            cdiData.Expressions.forEach((expr, i) => {
+            cdiData.Expressions.forEach((expr, _i) => {
               autoMap[expr.Name] = expr.Id || expr.Name
             })
             config.expressionMap = autoMap
@@ -215,7 +251,7 @@ const Live2DDisplay = forwardRef(({ modelId }, ref) => {
       if (pixiApp) { pixiApp.destroy(true); pixiApp = null }
       appRef.current = null
     }
-  }, [])
+  }, [modelId])
 
   useEffect(() => {
     if (modelId && modelId !== currentModelIdRef.current) {
