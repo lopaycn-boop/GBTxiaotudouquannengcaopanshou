@@ -34,3 +34,48 @@ jobs:
           python -c "from potato.trading.journal import TradeJournal; print('journal OK')"
           python -c "from potato.trading.executor import TradeExecutor; print('executor OK')"
           python -c "from potato.vault import Vault; print('vault OK')"
+
+  server-smoke:
+    # Verify the production dependency set (requirements.server.txt, used by the
+    # Docker image) can install and the server entrypoint imports cleanly.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install production server dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.server.txt
+
+      - name: App import check (server deps only)
+        run: python -c "import app; print('app import OK')"
+
+  docker-build:
+    # Build the production image and smoke-test the /health endpoint so
+    # Dockerfile-level regressions (e.g. wrong bind host) are caught in CI.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t potato-app:ci .
+
+      - name: Run container and check health
+        run: |
+          docker run -d --name potato-ci -p 8080:8080 potato-app:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/health; then
+              echo "health OK"; exit 0
+            fi
+            sleep 2
+          done
+          echo "health check failed"; docker logs potato-ci; exit 1
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f potato-ci || true
