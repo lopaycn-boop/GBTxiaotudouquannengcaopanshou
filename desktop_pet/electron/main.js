@@ -633,6 +633,7 @@ function setupIPC() {
   });
 
   ipcMain.handle('get-auto-start', async () => {
+    if (process.platform !== 'win32') return { enabled: false };
     return new Promise((resolve) => {
       const proc = spawn('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', '/v', 'PotatoDesktopPet'], { shell: true, stdio: 'pipe' });
       let out = '';
