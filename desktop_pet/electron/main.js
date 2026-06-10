@@ -677,19 +677,20 @@ function setupAutoUpdater() {
 
 // ── Auto-start on boot ──
 function setAutoStart(enable = true) {
+  // Registry-based autostart is Windows-only; skip on macOS/Linux to avoid
+  // an uncaught async 'spawn reg ENOENT' crash where `reg` does not exist.
+  if (process.platform !== 'win32') return;
   const appFolder = path.dirname(process.execPath);
   const exePath = path.join(appFolder, APP_NAME + '.exe');
   const regKey = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
 
-  if (enable) {
-    try {
-      spawn('reg', ['add', regKey, '/v', 'PotatoDesktopPet', '/t', 'REG_SZ', '/d', `"${exePath}"`, '/f'], { stdio: 'ignore' });
-    } catch(e) {}
-  } else {
-    try {
-      spawn('reg', ['delete', regKey, '/v', 'PotatoDesktopPet', '/f'], { stdio: 'ignore' });
-    } catch(e) {}
-  }
+  const args = enable
+    ? ['add', regKey, '/v', 'PotatoDesktopPet', '/t', 'REG_SZ', '/d', `"${exePath}"`, '/f']
+    : ['delete', regKey, '/v', 'PotatoDesktopPet', '/f'];
+  try {
+    const proc = spawn('reg', args, { stdio: 'ignore' });
+    proc.on('error', () => {});
+  } catch(e) {}
 }
 
 // ── IPC handlers for system control (allowlisted commands only) ──
@@ -765,6 +766,7 @@ function setupIPC() {
   });
 
   ipcMain.handle('get-auto-start', async () => {
+    if (process.platform !== 'win32') return { enabled: false };
     return new Promise((resolve) => {
       const proc = spawn('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', '/v', 'PotatoDesktopPet'], { shell: true, stdio: 'pipe' });
       let out = '';
