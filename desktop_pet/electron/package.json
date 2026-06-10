@@ -1,6 +1,6 @@
 {
   "name": "potato-desktop-pet",
-  "version": "1.20.2",
+  "version": "1.20.4",
   "description": "小土豆 AI操盘桌宠 — 自主交易+全电脑操控+Live2D",
   "author": "自由的风",
   "main": "main.js",
@@ -31,6 +31,13 @@
       "!../../**/node_modules/**"
     ],
     "extraResources": [
+      {
+        "from": "../frontend/dist",
+        "to": "frontend/dist",
+        "filter": [
+          "**/*"
+        ]
+      },
       {
         "from": "../backend",
         "to": "backend",
