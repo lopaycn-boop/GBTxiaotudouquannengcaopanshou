@@ -912,8 +912,9 @@ case 'billing_renewal_payment': {
   }, []);
 
   const BACKEND_PORT = backendPort;
-  const WS_URL = `://${window.location.hostname}:${BACKEND_PORT}/ws`;
-  const wsProto = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const BACKEND_HOST = (typeof window !== 'undefined' && window.location.hostname) ? window.location.hostname : '127.0.0.1';
+  const WS_URL = `://${BACKEND_HOST}:${BACKEND_PORT}/ws`;
+  const wsProto = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws';
   const fullWsUrl = typeof window !== 'undefined' ? `${wsProto}${WS_URL}` : 'ws://127.0.0.1:8000/ws';
   const { sendPacket, connected } = useNeuroSocket(fullWsUrl, handleServerPacket);
 
@@ -925,7 +926,7 @@ case 'billing_renewal_payment': {
         showToast('连接已恢复', 'success');
       }
       sendPacket({ type: 'vault_status', payload: {} });
-      fetch(`http://${window.location.hostname}:${backendPort}/health`).then(r => r.json()).then(setSystemStatus).catch(() => {});
+      fetch(`http://${BACKEND_HOST}:${backendPort}/health`).then(r => r.json()).then(setSystemStatus).catch(() => {});
     } else {
       if (prevConnectedRef.current === true) {
         setMessages(prev => [...prev, { type: 'system', content: '⚠️ 与服务器断开连接，正在重连...' }]);
@@ -998,6 +999,32 @@ case 'billing_renewal_payment': {
     const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     setShowScrollBottom(distFromBottom > 80);
   }, []);
+
+  const handleExportChat = useCallback((format = 'txt') => {
+    if (format === 'md') {
+      const md = messages.map(m => {
+        const role = m.type === 'user' ? '**🧑**' : '**🥔**';
+        const ts = `*${formatTs(m.ts)}*`;
+        const content = typeof m.content === 'string' ? m.content : '';
+        return `${role} ${ts}\n\n${content}`;
+      }).join('\n\n---\n\n');
+      const header = `# 🥔 小土豆 AI操盘桌宠 — 聊天记录\n\n*导出时间: ${new Date().toLocaleString()}*\n\n---\n\n`;
+      const blob = new Blob([header + md], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `potato-chat-${new Date().toISOString().slice(0, 10)}.md`;
+      a.click(); URL.revokeObjectURL(url);
+      showToast('Markdown导出成功', 'success');
+    } else {
+      const text = messages.map(m => `[${formatTs(m.ts)}] ${m.type}: ${typeof m.content === 'string' ? m.content : ''}`).join('\n');
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `potato-chat-${new Date().toISOString().slice(0, 10)}.txt`;
+      a.click(); URL.revokeObjectURL(url);
+      showToast('聊天已导出', 'success');
+    }
+  }, [messages]);
 
   const handleContextMenu = useCallback((e) => {
     e.preventDefault();
@@ -1164,32 +1191,6 @@ case 'billing_renewal_payment': {
       return next;
     });
   }, []);
-
-  const handleExportChat = useCallback((format = 'txt') => {
-    if (format === 'md') {
-      const md = messages.map(m => {
-        const role = m.type === 'user' ? '**🧑**' : '**🥔**';
-        const ts = `*${formatTs(m.ts)}*`;
-        const content = typeof m.content === 'string' ? m.content : '';
-        return `${role} ${ts}\n\n${content}`;
-      }).join('\n\n---\n\n');
-      const header = `# 🥔 小土豆 AI操盘桌宠 — 聊天记录\n\n*导出时间: ${new Date().toLocaleString()}*\n\n---\n\n`;
-      const blob = new Blob([header + md], { type: 'text/markdown;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `potato-chat-${new Date().toISOString().slice(0, 10)}.md`;
-      a.click(); URL.revokeObjectURL(url);
-      showToast('Markdown导出成功', 'success');
-    } else {
-      const text = messages.map(m => `[${formatTs(m.ts)}] ${m.type}: ${typeof m.content === 'string' ? m.content : ''}`).join('\n');
-      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `potato-chat-${new Date().toISOString().slice(0, 10)}.txt`;
-      a.click(); URL.revokeObjectURL(url);
-      showToast('聊天已导出', 'success');
-    }
-  }, [messages]);
 
   const handleCommandAction = useCallback((action) => {
     if (action === 'export') { handleExportChat(); }
