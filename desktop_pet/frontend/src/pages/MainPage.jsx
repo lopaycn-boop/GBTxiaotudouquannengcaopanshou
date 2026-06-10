@@ -1197,7 +1197,7 @@ case 'billing_renewal_payment': {
     else if (action === 'clear') { clearMessages(); showToast('聊天已清空', 'info'); }
     else if (action === 'theme') { cycleTheme(); }
     else if (action === 'lang') { switchLang(isZh ? 'en' : 'zh'); }
-  }, [clearMessages, cycleTheme, switchLang, isZh]);
+  }, [handleExportChat, clearMessages, cycleTheme, switchLang, isZh]);
 
   const handleQuickAction = (action) => {
     if (action.msg === '__vault__') {
