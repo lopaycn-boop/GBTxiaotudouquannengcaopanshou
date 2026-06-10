@@ -3,10 +3,17 @@
 __pycache__
 *.pyc
 node_modules
+**/node_modules
 .env
 *.db
 data/
 *.log
+# Desktop app build artifacts (Electron/Vite) — never needed in the server image
+**/dist
+**/release
+**/.vite
+desktop_pet/electron/dist
+desktop_pet/electron/release
 desktop_pet/frontend/node_modules
 desktop_pet/frontend/release
 desktop_pet/frontend/dist
