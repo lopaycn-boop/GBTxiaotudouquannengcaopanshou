@@ -67,7 +67,10 @@ jobs:
 
       - name: Run container and check health
         run: |
-          docker run -d --name potato-ci -p 8080:8080 potato-app:ci
+          docker run -d --name potato-ci -p 8080:8080 \
+            -e VAULT_ENCRYPTION_KEY=ci-smoke-key \
+            -e VAULT_SALT=ci-smoke-salt \
+            potato-app:ci
           for i in $(seq 1 30); do
             if curl -fsS http://localhost:8080/health; then
               echo "health OK"; exit 0
@@ -79,3 +82,25 @@ jobs:
       - name: Cleanup
         if: always()
         run: docker rm -f potato-ci || true
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install scanners
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit pip-audit
+
+      - name: Bandit static security scan (fail on high severity)
+        run: bandit -r potato app.py -lll -iii
+
+      - name: pip-audit dependency vulnerability scan (informational)
+        continue-on-error: true
+        run: pip-audit -r requirements.server.txt

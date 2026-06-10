@@ -76,6 +76,22 @@ KNOWN_KEYS = {
 _CIPHER = None
 
 
+def _is_server_environment() -> bool:
+    """Detect a server/container deployment (vs. local desktop app).
+
+    Used to fail closed when VAULT_ENCRYPTION_KEY is missing, since the
+    machine-fingerprint fallback is only safe for desktop/local use.
+    """
+    if os.getenv("POTATO_ENV", "").strip().lower() in {"production", "prod", "server"}:
+        return True
+    # Opt-out for edge cases where the fingerprint fallback is intentionally desired.
+    if os.getenv("POTATO_ALLOW_FINGERPRINT_VAULT", "").strip().lower() in {"1", "true", "yes"}:
+        return False
+    from pathlib import Path
+
+    return Path("/.dockerenv").exists()
+
+
 def _get_vault_key() -> bytes:
     """Derive a 256-bit encryption key for vault encryption.
 
@@ -99,6 +115,15 @@ def _get_vault_key() -> bytes:
                 "Set VAULT_SALT environment variable before starting."
             )
         return hashlib.pbkdf2_hmac("sha256", env_key.encode(), salt_val.encode(), 200_000)
+
+    if _is_server_environment():
+        raise RuntimeError(
+            "VAULT_ENCRYPTION_KEY is not set in a server/container environment. "
+            "Refusing to derive the vault key from the machine fingerprint: container "
+            "rebuilds change the fingerprint and make all previously encrypted secrets "
+            "permanently undecryptable. Set VAULT_ENCRYPTION_KEY (and VAULT_SALT) in the "
+            "deployment environment, e.g. Zeabur env vars."
+        )
 
     from potato.paths import DATA_DIR as _DATA_DIR
     salt_path = _DATA_DIR / ".vault_salt"
