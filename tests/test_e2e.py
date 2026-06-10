@@ -9,7 +9,7 @@ import sys
 sys.path.insert(0, ".")
 
 from decimal import Decimal
-from potato.risk import RiskValidator, TradeRequest, RiskState
+from potato.risk import RiskValidator, TradeRequest, RiskState, RiskVerdict
 from potato.trading.journal import TradeJournal
 from potato.trading.executor import TradeDecision, TradeExecutor
 from potato.vault import _encrypt, _decrypt
@@ -91,14 +91,17 @@ class TestE2ERiskFlow:
 
     def test_weekend_blocks_trade(self):
         rv = RiskValidator(user_prefs={"risk_confirmed": True})
+        # The weekend/hours gate is wall-clock based (datetime.now), so simulate a
+        # weekend verdict to deterministically assert validate_trade blocks on it.
+        rv._check_trading_hours = lambda: RiskVerdict(allowed=False, reason="WEEKEND: 今天是周末，A股不开盘")
         req = TradeRequest(
             action="BUY", symbol="600519", name="test",
             price=Decimal("100"), quantity=100, amount_cny=Decimal("10000"),
             confidence=Decimal("0.8"),
         )
-        state = RiskState(date="2026-05-30")
+        state = RiskState(date="2026-05-30")  # Saturday
         v = rv.validate_trade(req, state)
-        assert not v.allowed or "WEEKEND" in v.reason or "OUTSIDE_TRADING" in v.reason
+        assert not v.allowed and "WEEKEND" in v.reason
 
     def test_unconfirmed_blocks_all(self):
         rv = RiskValidator(user_prefs={"risk_confirmed": False})

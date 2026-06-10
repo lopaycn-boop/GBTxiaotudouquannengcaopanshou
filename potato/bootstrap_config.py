@@ -32,12 +32,20 @@ def build_crdb_dsn(url: str, ssl_root_cert: str) -> str:
             if not cert or not Path(cert).exists():
                 import logging
                 logger = logging.getLogger("potato.bootstrap")
-                if not logger.handlers or logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "CRDB SSL cert file not found at '%s', downgrading sslmode=verify-full to sslmode=require. "
-                        "Set CRDB_SSL_ROOT_CERT to a valid path for full certificate verification.",
-                        cert,
+                allow_downgrade = os.getenv("POTATO_DB_SSL_ALLOW_DOWNGRADE", "").strip().lower() in {"1", "true", "yes"}
+                if not allow_downgrade:
+                    raise RuntimeError(
+                        f"CRDB_DATABASE_URL requests sslmode=verify-full but the SSL root cert "
+                        f"was not found at '{cert}'. Refusing to silently weaken DB TLS to "
+                        f"sslmode=require (man-in-the-middle risk). Set CRDB_SSL_ROOT_CERT to a "
+                        f"valid path, or set POTATO_DB_SSL_ALLOW_DOWNGRADE=true to opt in to the "
+                        f"insecure downgrade."
                     )
+                logger.warning(
+                    "CRDB SSL cert file not found at '%s', downgrading sslmode=verify-full to sslmode=require "
+                    "(POTATO_DB_SSL_ALLOW_DOWNGRADE=true). This disables server certificate verification.",
+                    cert,
+                )
                 url = url.replace("sslmode=verify-full", "sslmode=require")
         elif "sslmode=" not in url:
             sep = "&" if "?" in url else "?"
