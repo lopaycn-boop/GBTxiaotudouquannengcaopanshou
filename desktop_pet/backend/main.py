@@ -663,16 +663,12 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.warning("WS rate limited: %s", client_host)
         return
 
-    if _WS_TOKEN:
+    is_loopback = client_host in ("127.0.0.1", "::1", "localhost")
+    if not is_loopback:
         token = websocket.query_params.get("token", "")
-        if not _hmac.compare_digest(token or "", _WS_TOKEN):
-            await websocket.close(code=4003, reason="Unauthorized")
-            logger.warning("WS auth failed from %s", client_host)
-            return
-    else:
-        if client_host not in ("127.0.0.1", "::1", "localhost"):
+        if not _WS_TOKEN or not _hmac.compare_digest(token or "", _WS_TOKEN):
             await websocket.close(code=4003, reason="Remote access requires PET_WS_TOKEN env var")
-            logger.warning("WS rejected: remote %s without token (set PET_WS_TOKEN for remote access)", client_host)
+            logger.warning("WS rejected: remote %s without valid token (set PET_WS_TOKEN for remote access)", client_host)
             return
 
     await websocket.accept()
