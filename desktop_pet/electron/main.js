@@ -407,7 +407,9 @@ function createWindow() {
 
   // Load frontend
   const frontendUrl = `http://127.0.0.1:${FRONTEND_PORT}`;
-  const distPath = path.join(__dirname, '..', 'frontend', 'dist', 'index.html');
+  const distPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'frontend', 'dist', 'index.html')
+    : path.join(__dirname, '..', 'frontend', 'dist', 'index.html');
 
   if (fs.existsSync(distPath)) {
     mainWindow.loadFile(distPath);
