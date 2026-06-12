@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "GBTxiaotudouAI"
+version = "1.21.0"
+description = "🌱 GBTxiaotudou AI操盘 — 自动交易+全电脑操控+AI助手"
+authors = [{name = "自由的风"}]
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "httpx>=0.25.0",
+    "pydantic>=2.0",
+    "python-dotenv>=1.0.0",
+    "slowapi>=0.1.9",
+]
+
+[tool.vercel]
+entrypoint = "desktop_pet.backend.main:app"
