@@ -198,6 +198,7 @@ async def fetch_realtime_quote(symbol: str, platform: str = "eastmoney") -> dict
     }
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     try:
+        fetched_at = datetime.now(timezone.utc).isoformat()
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(url, params=params, headers=headers)
             if resp.status_code == 200:
@@ -215,6 +216,10 @@ async def fetch_realtime_quote(symbol: str, platform: str = "eastmoney") -> dict
                         "change_pct": data.get("f170", 0) / 100 if data.get("f170") else None,
                         "pe": data.get("f162", 0) / 100 if data.get("f162") else None,
                         "pb": data.get("f116", 0) / 100 if data.get("f116") else None,
+                        "source": "eastmoney_stock_get",
+                        "source_name": "东方财富实时行情",
+                        "source_url": f"https://quote.eastmoney.com/{symbol}.html",
+                        "fetched_at": fetched_at,
                     }
     except Exception as e:
         logger.warning("Quote fetch failed for %s: %s", symbol, e)

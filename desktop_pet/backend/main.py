@@ -141,6 +141,46 @@ def _is_pure_motion_command(text: str) -> bool:
         return False
     return bool(_PURE_MOTION_PATTERNS.match(text.strip()))
 
+
+_MARKET_INFO_PATTERNS = re.compile(
+    r"(股票|行情|实时|现在多少|多少钱|报价|涨跌|涨幅|跌幅|资讯|新闻|研报|公告|"
+    r"异动|龙虎榜|筹码|问财|东方财富|选股|大盘|指数|A股|港股|美股)",
+    re.IGNORECASE,
+)
+_STOCK_CODE_PATTERN = re.compile(r"(?<!\d)(?:sh|sz)?([0234689]\d{5})(?!\d)", re.IGNORECASE)
+
+
+def _is_market_info_request(text: str) -> bool:
+    if not text:
+        return False
+    return bool(_MARKET_INFO_PATTERNS.search(text) or _STOCK_CODE_PATTERN.search(text))
+
+
+def _market_fetched_at() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def _quote_is_verified(quote: Any) -> bool:
+    return isinstance(quote, dict) and quote.get("price") not in (None, "", 0) and bool(quote.get("source_name"))
+
+
+def _quote_source_line(quote: dict[str, Any]) -> str:
+    source = quote.get("source_name") or quote.get("source") or "实时行情源"
+    fetched_at = quote.get("fetched_at") or "未知时间"
+    return f"数据源: {source} | 抓取时间: {fetched_at}"
+
+
+def _format_verified_quote(symbol: str, quote: dict[str, Any]) -> str:
+    if not _quote_is_verified(quote):
+        return f"我没有从实时行情源取到 {symbol} 的有效报价，所以不编价格。请稍后重试，或检查股票代码是否正确。"
+    chg = quote.get("change_pct")
+    chg_text = f"{float(chg):+.2f}%" if isinstance(chg, (int, float)) else "涨跌幅暂无"
+    price = quote.get("price", "N/A")
+    name = quote.get("name") or quote.get("code") or symbol
+    label = f"{name}({symbol})" if name and name != symbol else symbol
+    emoji = "📈" if isinstance(chg, (int, float)) and chg >= 0 else "📉"
+    return f"{emoji} {label} 现价: ¥{price} | 涨跌幅: {chg_text}\n{_quote_source_line(quote)}"
+
 def _check_rate_limit(ip: str) -> bool:
     now = time.time()
     window = _rate_bucket[ip]
@@ -163,7 +203,7 @@ async def lifespan(app: FastAPI):
         "╠══════════════════════════════════════════════╣",
         "║  后端 :{port}  │  前端 :5173  │  Agent :9991 ║".format(port=os.getenv("PORT", "8000")),
         "╠══════════════════════════════════════════════╣",
-        "║  数据源: DeepSeek│东方财富│问财选股│新浪财经  ║",
+        "║  数据源: DeepSeek│Infoway│东方财富│问财│新浪  ║",
         "║  引 擎: 5层LLM│PlanExecute│6Agent│DemoMode ║",
         "║  安  全: 15条风控│密钥加密│浏览器白名单│AI门控║",
         "╚══════════════════════════════════════════════╝",
@@ -425,6 +465,13 @@ class PotatoPetBrain:
 - 保守策略下单笔不超总资产30%
 - 每次分析结果通过trade_analysis action推给前端展示
 
+股票资讯与行情真实性硬规则：
+- 用户询问行情、价格、涨跌幅、资讯、研报、公告、异动、龙虎榜、选股条件时，必须优先触发对应实时数据 action（realtime_quote / iwencai_search / iwencai_query / stock_changes / hot_tables / em_query）。
+- 在实时数据 action 返回前，reply 只能简短说明“正在查询真实数据源”，不能直接给出价格、涨跌幅、新闻事实或推荐结论。
+- 任何股票价格、涨跌幅、新闻事实都必须来自真实数据源结果，并在回复中写明数据源和抓取时间；A股实时行情优先使用 Infoway，失败再回退新浪财经/东方财富。
+- 如果没有取到实时数据源，必须明确告诉用户“未取到实时数据，不能编造”，禁止用模型常识补价格、补新闻、补公告。
+- 模型可以解释风险和方法，但不能把推测当作实时事实。
+
 你的性格：保守、纪律优先、可爱但专业。用口语化中文回复。
 
 当前时间: {now_str}
@@ -638,8 +685,8 @@ def health():
     from potato.vault import Vault
     vault = Vault()
     vault_keys = {}
-    for key_name in ["DEEPSEEK_API_KEY", "GLM_API_KEY", "SILICON_API_KEY", "LINER_API_KEY", "OPENAI_API_KEY", "BASE44_API_KEY", "EM_API_KEY", "IWENCAI_API_KEY"]:
-        vault_keys[key_name] = "active" if vault.exists(key_name) else "empty"
+    for key_name in ["DEEPSEEK_API_KEY", "GLM_API_KEY", "SILICON_API_KEY", "LINER_API_KEY", "OPENAI_API_KEY", "BASE44_API_KEY", "EM_API_KEY", "IWENCAI_API_KEY", "INFOWAY_API_KEY"]:
+        vault_keys[key_name] = "active" if os.getenv(key_name, "").strip() or vault.exists(key_name) else "empty"
 
     active_providers = sum(1 for v in vault_keys.values() if v == "active")
 
@@ -1105,6 +1152,12 @@ async def handle_user_input(text: str, send_func):
     brain.reset_boredom_time()
     user_time_str = datetime.datetime.now().strftime("[%H:%M:%S]")
 
+    if _is_market_info_request(text):
+        await send_func("chat", {
+            "text": "收到，我马上查真实行情/资讯源；没有来源和抓取时间的内容我不会当事实说。",
+            "expression": "neutral",
+        })
+
     current_image_b64 = None
     vision_keywords = ["看看", "截图", "什么样", "屏幕", "界面", "打开了什么", "显示什么"]
     if any(k in text for k in vision_keywords):
@@ -1216,6 +1269,16 @@ _ACTION_LABELS = {
     "billing_usage": "用量明细",
     "billing_renewal_payment": "续费支付",
     "billing_confirm_payment": "确认付款",
+    "em_query": "东方财富问答",
+    "em_hotspot": "热点板块",
+    "em_sentiment": "市场情绪",
+    "realtime_quote": "实时行情",
+    "iwencai_query": "问财查询",
+    "iwencai_select": "问财选股",
+    "iwencai_search": "资讯搜索",
+    "stock_changes": "异动监控",
+    "hot_tables": "龙虎榜",
+    "chip_distribution": "筹码分布",
 }
 
 
@@ -3426,24 +3489,6 @@ def _find_available_port(start=8000, max_tries=10):
     return start
 
 
-if __name__ == "__main__":
-    import socket
-    import uvicorn
-    preferred_port = int(os.getenv("PORT", "8000"))
-    port = _find_available_port(preferred_port)
-    if port != preferred_port:
-        logger.warning("Port %d busy, using %d instead", preferred_port, port)
-    uvicorn.run(
-        app,
-        host="127.0.0.1",
-        port=port,
-        lifespan="on",
-        loop="asyncio",
-        log_level="info",
-        timeout_graceful_shutdown=5,
-    )
-
-
 # ── EastMoney Data Handlers ─────────────────────────────────────────────
 
 _EM_KEY = os.environ.get("EM_API_KEY", "")
@@ -3550,7 +3595,12 @@ async def handle_stock_changes(send_func):
     """Get real-time stock anomaly data (22 types)."""
     try:
         changes = get_stock_changes()
-        await send_func("stock_changes", {"changes": changes, "count": len(changes)})
+        meta = {
+            "source_name": changes[0].get("source_name", "实时异动数据源") if changes else "实时异动数据源",
+            "source_url": changes[0].get("source_url", "") if changes else "",
+            "fetched_at": changes[0].get("fetched_at", _market_fetched_at()) if changes else _market_fetched_at(),
+        }
+        await send_func("stock_changes", {"changes": changes, "count": len(changes), **meta})
     except Exception as e:
         await send_func("error", {"info": _safe_error(e)})
 
@@ -3560,7 +3610,13 @@ async def handle_hot_tables(payload: dict, send_func):
     market = payload.get("market", 1)
     try:
         tables = get_hot_tables(market=market)
-        await send_func("hot_tables", {"market": market, "data": tables})
+        await send_func("hot_tables", {
+            "market": market,
+            "data": tables,
+            "source_name": "东方财富龙虎榜",
+            "source_url": "https://datacenter-web.eastmoney.com/",
+            "fetched_at": _market_fetched_at(),
+        })
     except Exception as e:
         await send_func("error", {"info": _safe_error(e)})
 
@@ -3573,7 +3629,13 @@ async def handle_chip_distribution(payload: dict, send_func):
         return
     try:
         data = get_chip_distribution(stock_code)
-        await send_func("chip_distribution", {"stock_code": stock_code, "data": data})
+        await send_func("chip_distribution", {
+            "stock_code": stock_code,
+            "data": data,
+            "source_name": data.get("source", "东方财富筹码分布") if isinstance(data, dict) else "东方财富筹码分布",
+            "source_url": "https://quote.eastmoney.com/",
+            "fetched_at": _market_fetched_at(),
+        })
     except Exception as e:
         await send_func("error", {"info": _safe_error(e)})
 
@@ -3592,14 +3654,22 @@ async def handle_sentiment_analysis(payload: dict, send_func):
 
 
 async def handle_realtime_quote(payload: dict, send_func):
-    """Get real-time stock quote from Sina Finance."""
-    stock_code = payload.get("stock_code", "")
+    """Get verified real-time stock quote."""
+    stock_code = payload.get("stock_code", "") or payload.get("symbol", "")
     if not stock_code:
         await send_func("error", {"info": "请提供股票代码"})
         return
     try:
         quote = get_realtime_quote(stock_code)
-        await send_func("realtime_quote", quote)
+        if _quote_is_verified(quote):
+            await send_func("realtime_quote", {"ok": True, **quote})
+        else:
+            await send_func("realtime_quote", {
+                "ok": False,
+                "code": stock_code,
+                "error": "未取到实时行情源，不能编造报价",
+                "fetched_at": _market_fetched_at(),
+            })
     except Exception as e:
         await send_func("error", {"info": _safe_error(e)})
 
@@ -3613,8 +3683,16 @@ async def handle_em_query(payload: dict, send_func):
         client = _em_client()
         result = client.financial_qa(question)
         content = result if isinstance(result, str) else str(result)
-        await send_func("em_financial_qa", {"question": question, "content": content or "暂无数据"})
-        await send_reply(f"📊 东方财富问答: {content[:300]}", "happy", send_func)
+        meta = {
+            "source_name": "东方财富AI金融问答",
+            "source_url": "https://ai-saas.eastmoney.com/",
+            "fetched_at": _market_fetched_at(),
+        }
+        await send_func("em_financial_qa", {"question": question, "content": content or "暂无数据", **meta})
+        if content:
+            await send_reply(f"📊 东方财富问答: {content[:300]}\n数据源: {meta['source_name']} | 抓取时间: {meta['fetched_at']}", "happy", send_func)
+        else:
+            await send_reply("没有从东方财富实时源取到有效回答，所以不编造。", "neutral", send_func)
     except Exception as e:
         await send_func("error", {"info": _safe_error(e)})
 
@@ -3624,8 +3702,16 @@ async def handle_em_hotspot(send_func):
         client = _em_client()
         result = client.hotspot_discovery("")
         content = result if isinstance(result, str) else str(result)
-        await send_func("em_hotspot_discovery", {"content": content or "暂无数据"})
-        await send_reply(f"🔥 热点板块: {content[:300]}", "happy", send_func)
+        meta = {
+            "source_name": "东方财富热点发现",
+            "source_url": "https://ai-saas.eastmoney.com/",
+            "fetched_at": _market_fetched_at(),
+        }
+        await send_func("em_hotspot_discovery", {"content": content or "暂无数据", **meta})
+        if content:
+            await send_reply(f"🔥 热点板块: {content[:300]}\n数据源: {meta['source_name']} | 抓取时间: {meta['fetched_at']}", "happy", send_func)
+        else:
+            await send_reply("没有从东方财富实时源取到热点数据，所以不编造。", "neutral", send_func)
     except Exception as e:
         await send_func("error", {"info": _safe_error(e)})
 
@@ -3657,17 +3743,22 @@ async def handle_realtime_quote_ai(payload: dict, send_func):
         return
     try:
         quote = get_realtime_quote(symbol)
-        await send_func("realtime_quote", quote)
-        if quote and quote.get("name"):
+        if _quote_is_verified(quote):
+            await send_func("realtime_quote", {"ok": True, **quote})
             chg = quote.get("change_pct", 0)
-            emoji = "📈" if chg >= 0 else "📉"
             await send_reply(
-                f"{emoji} {quote['name']}({symbol}): ¥{quote.get('price', 'N/A')} {chg:+.2f}%",
-                "happy" if chg >= 0 else "angry",
+                _format_verified_quote(symbol, quote),
+                "happy" if isinstance(chg, (int, float)) and chg >= 0 else "angry",
                 send_func,
             )
         else:
-            await send_reply(f"未找到 {symbol} 的行情数据", "neutral", send_func)
+            await send_func("realtime_quote", {
+                "ok": False,
+                "code": symbol,
+                "error": "未取到实时行情源，不能编造报价",
+                "fetched_at": _market_fetched_at(),
+            })
+            await send_reply(_format_verified_quote(symbol, quote or {}), "neutral", send_func)
     except Exception as e:
         await send_func("error", {"info": _safe_error(e)})
 
@@ -3675,13 +3766,24 @@ async def handle_realtime_quote_ai(payload: dict, send_func):
 async def handle_stock_changes_ai(send_func):
     try:
         changes = get_stock_changes()
-        await send_func("stock_changes", {"changes": changes, "count": len(changes)})
+        meta = {
+            "source_name": changes[0].get("source_name", "实时异动数据源") if changes else "实时异动数据源",
+            "source_url": changes[0].get("source_url", "") if changes else "",
+            "fetched_at": changes[0].get("fetched_at", _market_fetched_at()) if changes else _market_fetched_at(),
+        }
+        await send_func("stock_changes", {"changes": changes, "count": len(changes), **meta})
         if changes:
             top5 = changes[:5]
             lines = [f"  {c.get('name', '?')}({c.get('code', '?')}): {c.get('type', '?')}" for c in top5]
-            await send_reply(f"📈 异动监控: 发现{len(changes)}只异动股\n" + "\n".join(lines), "neutral", send_func)
+            await send_reply(
+                f"📈 异动监控: 发现{len(changes)}只异动股\n"
+                + "\n".join(lines)
+                + f"\n数据源: {meta['source_name']} | 抓取时间: {meta['fetched_at']}",
+                "neutral",
+                send_func,
+            )
         else:
-            await send_reply("暂无异动股票", "neutral", send_func)
+            await send_reply("没有从实时异动源取到数据，所以不编造。", "neutral", send_func)
     except Exception as e:
         await send_func("error", {"info": _safe_error(e)})
 
@@ -3689,11 +3791,20 @@ async def handle_stock_changes_ai(send_func):
 async def handle_hot_tables_ai(send_func):
     try:
         tables = get_hot_tables()
-        await send_func("hot_tables", {"data": tables})
+        meta = {
+            "source_name": "东方财富龙虎榜",
+            "source_url": "https://datacenter-web.eastmoney.com/",
+            "fetched_at": _market_fetched_at(),
+        }
+        await send_func("hot_tables", {"data": tables, **meta})
         if tables:
-            await send_reply(f"🀄 龙虎榜: 今日{len(tables)}只个股上榜", "neutral", send_func)
+            await send_reply(
+                f"🀄 龙虎榜: 今日{len(tables)}只个股上榜\n数据源: {meta['source_name']} | 抓取时间: {meta['fetched_at']}",
+                "neutral",
+                send_func,
+            )
         else:
-            await send_reply("今日龙虎榜暂无数据", "neutral", send_func)
+            await send_reply("没有从龙虎榜实时源取到数据，所以不编造。", "neutral", send_func)
     except Exception as e:
         await send_func("error", {"info": _safe_error(e)})
 
@@ -3705,11 +3816,16 @@ async def handle_chip_distribution_ai(payload: dict, send_func):
         return
     try:
         data = get_chip_distribution(symbol)
-        await send_func("chip_distribution", {"stock_code": symbol, "data": data})
+        meta = {
+            "source_name": data.get("source", "东方财富筹码分布") if isinstance(data, dict) else "东方财富筹码分布",
+            "source_url": "https://quote.eastmoney.com/",
+            "fetched_at": _market_fetched_at(),
+        }
+        await send_func("chip_distribution", {"stock_code": symbol, "data": data, **meta})
         if data:
-            await send_reply(f"📊 {symbol} 筹码分布已获取", "neutral", send_func)
+            await send_reply(f"📊 {symbol} 筹码分布已获取\n数据源: {meta['source_name']} | 抓取时间: {meta['fetched_at']}", "neutral", send_func)
         else:
-            await send_reply(f"{symbol} 筹码数据暂无", "neutral", send_func)
+            await send_reply(f"没有从实时源取到 {symbol} 的筹码数据，所以不编造。", "neutral", send_func)
     except Exception as e:
         await send_func("error", {"info": _safe_error(e)})
 
@@ -5379,3 +5495,21 @@ async def api_chat(request: Request):
     except Exception as e:
         logger.warning("chat failed: %s", e)
     return JSONResponse({"ok": False, "response": "AI暂时不可用，请检查模型密钥设置"})
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    preferred_port = int(os.getenv("PORT", "8000"))
+    port = _find_available_port(preferred_port)
+    if port != preferred_port:
+        logger.warning("Port %d busy, using %d instead", preferred_port, port)
+    uvicorn.run(
+        app,
+        host="127.0.0.1",
+        port=port,
+        lifespan="on",
+        loop="asyncio",
+        log_level="info",
+        timeout_graceful_shutdown=5,
+    )

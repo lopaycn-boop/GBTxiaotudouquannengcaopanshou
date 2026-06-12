@@ -70,6 +70,8 @@ KNOWN_KEYS = {
                    "renewal_url": "https://ai-saas.eastmoney.com", "dashboard_url": "https://ai-saas.eastmoney.com"},
     "IWENCAI_API_KEY": {"category": "api_key", "desc": "问财智能选股API Key（自然语言选股/宏观/资讯搜索）",
                         "renewal_url": "https://openapi.iwencai.com", "dashboard_url": "https://www.iwencai.com"},
+    "INFOWAY_API_KEY": {"category": "api_key", "desc": "Infoway A股实时行情 API Key",
+                        "renewal_url": "https://infoway.io", "dashboard_url": "https://infoway.io"},
 }
 
 _CIPHER = None

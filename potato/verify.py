@@ -30,6 +30,7 @@ def verify():
         ("potato.trading.journal", "专业复盘系统"),
         ("potato.trading.plan_execute", "PlanExecute多步分析"),
         ("potato.eastmoney", "东方财富AI SaaS(8API+情感+异动+K线+多源回退)"),
+        ("potato.infoway", "Infoway A股实时行情(真实行情主源)"),
         ("potato.iwencai", "问财智能选股(2API+网页回退+数据中心回退)"),
         ("potato.config", "配置管理"),
         ("potato.memory", "30天记忆系统"),
@@ -64,7 +65,7 @@ def verify():
         from potato.vault import Vault
         vault = Vault()
         active = 0
-        for key_name in ["DEEPSEEK_API_KEY", "SILICON_API_KEY", "LINER_API_KEY", "OPENAI_API_KEY", "BASE44_API_KEY", "EM_API_KEY", "IWENCAI_API_KEY"]:
+        for key_name in ["DEEPSEEK_API_KEY", "SILICON_API_KEY", "LINER_API_KEY", "OPENAI_API_KEY", "BASE44_API_KEY", "EM_API_KEY", "IWENCAI_API_KEY", "INFOWAY_API_KEY"]:
             val = vault.get(key_name)
             if val:
                 active += 1

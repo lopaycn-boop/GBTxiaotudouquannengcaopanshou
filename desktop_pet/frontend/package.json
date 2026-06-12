@@ -1,7 +1,7 @@
 {
   "name": "xiaotudou-desktop-pet",
   "productName": "GBTxiaotudou 全能操盘手",
-  "version": "1.0.0",
+  "version": "1.21.1",
   "description": "🌱 GBTxiaotudou 全能操盘手 — AI智能交易助手",
   "author": "OpenClaw",
   "private": true,
@@ -33,14 +33,7 @@
     ],
     "extraResources": [
       {
-        "from": "glass_app",
-        "to": "glass-app",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "dist2",
+        "from": "dist",
         "to": "frontend-dist",
         "filter": [
           "**/*"
@@ -63,13 +56,6 @@
           "!__pycache__",
           "!*.pyc",
           "!*.db"
-        ]
-      },
-      {
-        "from": "../../config",
-        "to": "config",
-        "filter": [
-          "**/*"
         ]
       },
       {

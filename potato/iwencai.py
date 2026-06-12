@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -31,6 +32,10 @@ _HEADERS_BASE = {
 }
 
 _TIMEOUT = httpx.Timeout(connect=8.0, read=30.0, write=10.0, pool=30.0)
+
+
+def _fetched_at() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _get_api_key() -> str:
@@ -108,6 +113,9 @@ class IwencaiClient:
                 "total": data.get("code_count", len(datas)),
                 "question": question,
                 "source": "iwencai_api",
+                "source_name": "问财开放平台",
+                "source_url": f"{_BASE_URL}/v1/query2data",
+                "fetched_at": _fetched_at(),
             }
 
         except httpx.TimeoutException:
@@ -177,6 +185,9 @@ class IwencaiClient:
                 "keyword": keyword,
                 "channel": channel,
                 "source": "iwencai_search",
+                "source_name": "问财资讯搜索",
+                "source_url": f"{_BASE_URL}/v1/comprehensive/search",
+                "fetched_at": _fetched_at(),
             }
 
         except httpx.TimeoutException:
@@ -213,6 +224,9 @@ class IwencaiClient:
             "total": result.get("total", len(stocks)),
             "query": query,
             "source": "iwencai_select",
+            "source_name": result.get("source_name", "问财选股"),
+            "source_url": result.get("source_url", "https://www.iwencai.com/"),
+            "fetched_at": result.get("fetched_at", _fetched_at()),
         }
 
     def select_sector(self, keyword: str) -> dict[str, Any]:
@@ -277,7 +291,8 @@ def _iwencai_web_query(question: str, page: int, limit: int) -> dict[str, Any]:
         data = resp.json()
         answer = data.get("data", {}).get("answer", [])
         if not answer:
-            return {"ok": True, "data": [], "total": 0, "question": question, "source": "iwencai_web"}
+            return {"ok": True, "data": [], "total": 0, "question": question, "source": "iwencai_web",
+                    "source_name": "问财网页实时查询", "source_url": _WEB_URL, "fetched_at": _fetched_at()}
 
         result_data = []
         for ans in answer:
@@ -299,6 +314,9 @@ def _iwencai_web_query(question: str, page: int, limit: int) -> dict[str, Any]:
             "total": len(result_data),
             "question": question,
             "source": "iwencai_web",
+            "source_name": "问财网页实时查询",
+            "source_url": _WEB_URL,
+            "fetched_at": _fetched_at(),
         }
 
     except (httpx.TimeoutException, httpx.ConnectTimeout):
@@ -358,6 +376,9 @@ def _em_datacenter_query(question: str, page: int, limit: int) -> dict[str, Any]
             "total": result.get("count", len(items)),
             "question": question,
             "source": "em_datacenter",
+            "source_name": "东方财富数据中心",
+            "source_url": dc_url,
+            "fetched_at": _fetched_at(),
         }
     except Exception:
         return {"ok": False, "error": "数据中心不可用", "question": question}
@@ -369,13 +390,16 @@ def format_iwencai_to_text(result: dict[str, Any]) -> str:
         return f"查询失败: {result.get('error', '未知错误')}"
 
     source = result.get("source", "")
+    source_name = result.get("source_name", source or "实时数据源")
+    fetched_at = result.get("fetched_at", "")
+    meta = f"数据源: {source_name}" + (f" | 抓取时间: {fetched_at}" if fetched_at else "")
     data = result.get("data", [])
 
     if source == "iwencai_search":
         items = result.get("data", [])
         if not items:
-            return "未找到相关资讯"
-        lines = [f"📊 {result.get('keyword', '')} - {result.get('channel', 'news')}搜索结果"]
+            return f"未找到相关资讯\n{meta}"
+        lines = [f"📊 {result.get('keyword', '')} - {result.get('channel', 'news')}搜索结果", meta]
         for i, item in enumerate(items[:10], 1):
             title = item.get("title", "无标题")
             date = item.get("publish_date", "")
@@ -386,8 +410,8 @@ def format_iwencai_to_text(result: dict[str, Any]) -> str:
     if source == "iwencai_select":
         stocks = result.get("stocks", [])
         if not stocks:
-            return f"「{result.get('query', '')}」未筛选到符合条件的股票"
-        lines = [f"筛选「{result.get('query', '')}」共{result.get('total', len(stocks))}只:"]
+            return f"「{result.get('query', '')}」未筛选到符合条件的股票\n{meta}"
+        lines = [f"筛选「{result.get('query', '')}」共{result.get('total', len(stocks))}只:", meta]
         for s in stocks[:15]:
             code = s.get("code", "")
             name = s.get("name", "")
@@ -397,9 +421,9 @@ def format_iwencai_to_text(result: dict[str, Any]) -> str:
         return "\n".join(lines)
 
     if not data:
-        return f"「{result.get('question', '')}」未查到数据"
+        return f"「{result.get('question', '')}」未查到数据\n{meta}"
 
-    lines = [f"📊 {result.get('question', '')}"]
+    lines = [f"📊 {result.get('question', '')}", meta]
     for item in data[:10]:
         if isinstance(item, dict):
             name = item.get("名称", item.get("name", ""))
