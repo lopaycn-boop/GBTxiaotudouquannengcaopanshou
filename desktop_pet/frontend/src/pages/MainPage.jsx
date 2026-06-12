@@ -1394,8 +1394,8 @@ case 'billing_renewal_payment': {
       lang={isZh ? 'zh' : 'en'}
     />
     <div className="app">
-      {/* AI助手：全屏，干净桌面只有AI助手 */}
-      <div className="pet-layer" style={{ display: 'none' }}>
+      {/* 桌宠层：全屏居中，Live2D在桌面活动 */}
+      <div className="pet-layer">
         <Live2DController ref={live2dRef} modelId={currentModel} />
 
         {recording && <div className="recording-ring" />}

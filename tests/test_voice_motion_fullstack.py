@@ -204,4 +204,5 @@ if FAIL == 0:
     print("  🎉 全部通过！声控全肢体动作系统就绪")
 else:
     print(f"  ⚠️  {FAIL} 项失败，需要修复")
-sys.exit(0 if FAIL == 0 else 1)
+if __name__ == '__main__':
+    sys.exit(0 if FAIL == 0 else 1)
