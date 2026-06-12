@@ -76,8 +76,8 @@ def init_db() -> dict[str, Any]:
     6. ChromaDB directory for vector memory
     """
     results: dict[str, Any] = {}
-    get_data_dir()
-    (BACKEND_DIR / "memory_db").mkdir(parents=True, exist_ok=True)
+    data_dir = get_data_dir()
+    (data_dir / "memory_db").mkdir(parents=True, exist_ok=True)
 
     try:
         db = get_db()
@@ -116,7 +116,7 @@ def init_db() -> dict[str, Any]:
         results["memory_error"] = str(e)
 
     try:
-        facts_path = BACKEND_DIR / "user_facts.json"
+        facts_path = DATA_DIR / "user_facts.json"
         if not facts_path.exists():
             import json
             facts_path.write_text("{}", encoding="utf-8")
@@ -175,9 +175,9 @@ def health_check() -> dict[str, Any]:
         status["credentials_error"] = str(e)
 
     try:
-        chroma_path = BACKEND_DIR / "memory_db"
+        chroma_path = DATA_DIR / "memory_db"
         status["chroma_dir_exists"] = chroma_path.exists()
-        status["facts_file_exists"] = (BACKEND_DIR / "user_facts.json").exists()
+        status["facts_file_exists"] = (DATA_DIR / "user_facts.json").exists()
         status["prefs_file_exists"] = (DATA_DIR / "user_prefs.json").exists()
     except Exception as e:
         status["files_error"] = str(e)

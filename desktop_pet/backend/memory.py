@@ -24,9 +24,10 @@ import time
 import uuid
 import datetime
 import random
+from potato.paths import DATA_DIR
 
-_MEMORY_DIR = os.path.join(os.path.dirname(__file__), "memory_db")
-_FACTS_PATH = os.path.join(os.path.dirname(__file__), "user_facts.json")
+_MEMORY_DIR = str(DATA_DIR / "memory_db")
+_FACTS_PATH = str(DATA_DIR / "user_facts.json")
 
 _chroma = None
 _episodic_col = None
