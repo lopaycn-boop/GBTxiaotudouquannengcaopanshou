@@ -6,16 +6,8 @@ let _cachedWsToken = '';
 async function fetchWsToken() {
   if (_cachedWsToken) return _cachedWsToken;
   try {
-    const r = await fetch('/health');
-    if (!r.ok) {
-      // 可能前端跑在5173，后端在8000
-      const r2 = await fetch('http://127.0.0.1:8000/health');
-      if (r2.ok) { const d = await r2.json(); _cachedWsToken = d.ws_token || ''; return _cachedWsToken; }
-    } else {
-      const d = await r.json();
-      _cachedWsToken = d.ws_token || '';
-      return _cachedWsToken;
-    }
+    const r = await fetch('http://127.0.0.1:8000/health');
+    if (r.ok) { const d = await r.json(); _cachedWsToken = d.ws_token || ''; return _cachedWsToken; }
   } catch (_e) { /* ignore */ }
   return '';
 }

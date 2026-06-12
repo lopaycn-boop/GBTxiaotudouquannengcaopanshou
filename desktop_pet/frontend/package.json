@@ -114,7 +114,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "public/icon.ico"
@@ -129,12 +131,22 @@
     "asar": false
   },
   "dependencies": {
+    "@formkit/auto-animate": "^0.9.0",
+    "@headlessui/react": "^2.2.10",
+    "@heroicons/react": "^2.2.0",
     "@ricky0123/vad-react": "^0.0.36",
     "@ricky0123/vad-web": "^0.0.30",
+    "framer-motion": "^12.40.0",
+    "lucide-react": "^1.17.0",
     "pixi-live2d-display": "^0.4.0",
     "pixi.js": "^6.0.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-beautiful-dnd": "^13.1.1",
+    "react-dom": "^18.3.1",
+    "react-hot-toast": "^2.6.0",
+    "react-spring": "^10.0.4",
+    "react-virtualized": "^9.22.6",
+    "react-window": "^2.2.7"
   },
   "devDependencies": {
     "@electron/packager": "^20.0.0",

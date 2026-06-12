@@ -7,8 +7,13 @@ import DataPanel from '../components/DataPanel';
 import SettingsPanel from '../components/SettingsPanel';
 import TradeHistoryPanel from '../components/TradeHistoryPanel';
 import OnboardingWizard from '../components/OnboardingWizard';
+import ModernPanel from '../components/ModernPanel';
+import ProgrammingToolsPage from '../pages/ProgrammingToolsPage';
+import AIChatPage from '../pages/AIChatPage';
+import CloudComputerPage from '../pages/CloudComputerPage';
 import '../App.css';
 import '../futuristic-theme.css';
+import '../styles/modern-panel.css';
 
 import { useAudioQueue } from '../hooks/useAudioQueue';
 import { useNeuroSocket } from '../hooks/useNeuroSocket';
@@ -176,6 +181,7 @@ const QUICK_ACTIONS = [
   { label: '🆙 更新', msg: '__check_updates__' },
   { label: '📊 记录', msg: '__trade_history__' },
   { label: '⚙️ 设置', msg: '__settings__' },
+  { label: '🚀 编程面板', msg: '__modern_panel__' },
 ];
 
 export default function MainPage() {
@@ -213,6 +219,9 @@ export default function MainPage() {
   const [alwaysOnTop, setAlwaysOnTop] = useState(true);
   const [systemStatus, setSystemStatus] = useState(null);
   const [splashStage, setSplashStage] = useState('init');
+  const [showModernPanel, setShowModernPanel] = useState(false);
+  const [selectedModule, setSelectedModule] = useState(null);
+  const [currentPage, setCurrentPage] = useState(null);
   const messagesEndRef = useRef(null);
   const chatMessagesRef = useRef(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
@@ -950,7 +959,7 @@ case 'billing_renewal_payment': {
   }, []);
 
   const BACKEND_PORT = backendPort;
-  const BACKEND_HOST = (typeof window !== 'undefined' && window.location.hostname) ? window.location.hostname : '127.0.0.1';
+  const BACKEND_HOST = '127.0.0.1';
   const WS_URL = `://${BACKEND_HOST}:${BACKEND_PORT}/ws`;
   const wsProto = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws';
   const fullWsUrl = typeof window !== 'undefined' ? `${wsProto}${WS_URL}` : 'ws://127.0.0.1:8000/ws';
@@ -1139,11 +1148,7 @@ case 'billing_renewal_payment': {
       }, 15000);
     } catch (e) {
       console.warn('[mic] 录音失败:', e);
-      let hint = e.message || '未知错误';
-      if (e.name === 'NotAllowedError') hint = '麦克风权限被拒绝，请在系统设置中允许';
-      if (e.name === 'NotFoundError') hint = '未找到麦克风设备';
-      if (e.name === 'NotReadableError') hint = '麦克风被其他程序占用';
-      setMessages(prev => [...prev, { type: 'system', content: `❌ 麦克风: ${hint}` }]);
+      // 静默处理麦克风错误，不弹消息打扰用户
       setRecording(false);
     }
   }, [recording, neuroState, sendPacket]);
@@ -1186,6 +1191,13 @@ case 'billing_renewal_payment': {
     setInputText('');
     setActionSteps([]);
     if (neuroState === "speaking" || isPlaying) interruptNeuro();
+
+    // 处理现代化面板快速操作
+    if (text === '__modern_panel__') {
+      setShowModernPanel(true);
+      setMessages(prev => [...prev, { type: 'system', content: '🚀 正在打开GBTxiaotudou全栈编程面板...' }]);
+      return;
+    }
 
     const detected = detectKey(text);
     if (detected) {
@@ -1383,7 +1395,7 @@ case 'billing_renewal_payment': {
     />
     <div className="app">
       {/* AI助手：全屏，干净桌面只有AI助手 */}
-      <div className="pet-layer">
+      <div className="pet-layer" style={{ display: 'none' }}>
         <Live2DController ref={live2dRef} modelId={currentModel} />
 
         {recording && <div className="recording-ring" />}
@@ -1399,13 +1411,32 @@ case 'billing_renewal_payment': {
 
         {/* 胸口隐形触摸区：点一下=召唤/关闭对话框+开始录音 */}
         <div className="pet-tap-zone" onClick={handleMicClick} />
+
+        {/* 现代化面板快速访问按钮 */}
+        <div className="modern-panel-quick-access">
+          <button
+            onClick={() => setShowModernPanel(true)}
+            className="modern-panel-launch-btn floating-animation"
+            title="GBTxiaotudou全栈编程面板"
+          >
+            <div className="modern-panel-launch-icon">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div className="modern-panel-launch-pulse" />
+          </button>
+        </div>
       </div>
 
       {/* 聊天浮窗：左侧 */}
-      <div className={`chat-card ${chatOpen ? 'visible' : 'hidden'}`} style={{ width: chatWidth, transition: isDragging?.current ? 'none' : 'width 0.2s', position: 'relative', overflow: 'visible' }} onContextMenu={handleContextMenu}>
+      <div className={`chat-card ${chatOpen ? 'visible' : 'hidden'}`} style={{ width: chatWidth, transition: isDragging?.current ? 'none' : 'width 0.2s', position: 'relative', display: 'flex', flexDirection: 'row' }} onContextMenu={handleContextMenu}>
         {/* 龙绕对话框 */}
         <DragonOrbit />
         <div className="chat-resize-handle" {...resizeHandleProps} style={{ position: 'absolute', top: 0, bottom: 0, right: 0, width: 6, cursor: 'ew-resize', zIndex: 10 }} />
+        
+        {/* 左列：主内容 */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
         <div className="chat-card-head">
           <div className="head-left">
             <span className="dot" style={{ background: stateColor, color: stateColor }}></span>
@@ -1424,18 +1455,12 @@ case 'billing_renewal_payment': {
           />
         )}
 
-        <div className="chat-quick">
-          {QUICK_ACTIONS.map(a => (
-            <button key={a.label} onClick={() => handleQuickAction(a)}>{a.label}</button>
-          ))}
-        </div>
-
         <QuickReplyChips
           onSend={(msg) => { sendPacket({ type: 'text_input', payload: { text: msg } }); setChatOpen(true); }}
           lastMessageType={messages.length > 0 ? messages[messages.length - 1].type : 'system'}
         />
 
-        <div className="chat-msgs" ref={chatMessagesRef} onScroll={handleChatScroll}>
+        <div className="chat-msgs" ref={chatMessagesRef} onScroll={handleChatScroll} style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
           {!connected && (
             <div style={{ position: 'sticky', top: 0, zIndex: 10, background: 'rgba(255,82,82,0.15)', borderBottom: '1px solid rgba(255,82,82,0.3)', color: '#ff8a80', textAlign: 'center', fontSize: 12, padding: '6px', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
               ⚠️ 连接断开，正在重连...
@@ -1590,6 +1615,14 @@ case 'billing_renewal_payment': {
             ))}
           </div>
         )}
+        </div>{/* 左列结束 */}
+        
+        {/* 右列：快捷按钮竖排 */}
+        <div className="chat-quick" style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '8px 4px', background: 'rgba(0,0,0,0.3)', borderLeft: '1px solid rgba(255,255,255,0.08)', justifyContent: 'flex-start', overflowY: 'auto', flexShrink: 0 }}>
+          {QUICK_ACTIONS.map(a => (
+            <button key={a.label} onClick={() => handleQuickAction(a)} title={a.label.replace(/^. /,'')} style={{ width: 36, height: 36, padding: 0, fontSize: 15, borderRadius: 8, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#ccc', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{a.label.slice(0,2)}</button>
+          ))}
+        </div>
       </div>
       {showBillingPanel && <BillingPanel
         data={billingPanelData}
@@ -1637,12 +1670,11 @@ case 'billing_renewal_payment': {
         </div>
       )}
 
-        <TradeHistoryPanel
+        {showTradeHistory && <TradeHistoryPanel
           onClose={() => setShowTradeHistory(false)}
           sendPacket={sendPacket}
           messages={messages}
-        />
-      )}
+        />}
 
       {/* Dashboard overlay */}
       {chatOpen && (
@@ -1747,6 +1779,55 @@ handleExportChat={handleExportChat}
             setPendingTrade(null);
           }}
           lang={isZh ? 'zh' : 'en'}
+        />
+      )}
+
+      {/* 现代化面板 */}
+      {showModernPanel && (
+        <ModernPanel
+          onModuleSelect={(module) => {
+            setSelectedModule(module);
+            setShowModernPanel(false);
+            
+            // 根据选择的模块跳转到对应页面
+            switch (module.id) {
+              case 'programming-tools':
+                setCurrentPage('programming-tools');
+                break;
+              case 'ai-chat':
+                setCurrentPage('ai-chat');
+                break;
+              case 'cloud-computer':
+                setCurrentPage('cloud-computer');
+                break;
+              default:
+                setMessages(prev => [...prev, { type: 'system', content: `🚀 正在打开 ${module.name}...` }]);
+                break;
+            }
+          }}
+          selectedModule={selectedModule}
+          onClose={() => setShowModernPanel(false)}
+        />
+      )}
+
+      {/* 编程工具页面 */}
+      {currentPage === 'programming-tools' && (
+        <ProgrammingToolsPage
+          onBack={() => setCurrentPage(null)}
+        />
+      )}
+
+      {/* AI聊天页面 */}
+      {currentPage === 'ai-chat' && (
+        <AIChatPage
+          onBack={() => setCurrentPage(null)}
+        />
+      )}
+
+      {/* 云电脑页面 */}
+      {currentPage === 'cloud-computer' && (
+        <CloudComputerPage
+          onBack={() => setCurrentPage(null)}
         />
       )}
     </div>
