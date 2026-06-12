@@ -28,7 +28,7 @@ const MAX_CRASH_RESTARTS = 3;
 
 let BACKEND_PORT = parseInt(process.env.PET_BACKEND_PORT || '8003', 10);
 const FRONTEND_PORT = 5173;
-const APP_NAME = '小土豆 AI操盘桌宠';
+const APP_NAME = 'GBTxiaotudou AI操盘';
 
 // ── All permissions pre-granted ──
 async function grantAllPermissions() {
@@ -635,7 +635,7 @@ function setupAutoUpdater() {
   autoUpdater.setFeedURL({
     provider: 'github',
     owner: 'lopaycn-boop',
-    repo: 'a-stock-desktop-pet',
+    repo: 'GBTxiaotudouAI操盘',
   });
 
   autoUpdater.on('update-available', (info) => {

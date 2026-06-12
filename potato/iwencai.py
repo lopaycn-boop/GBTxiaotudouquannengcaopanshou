@@ -48,7 +48,7 @@ class IwencaiClient:
     """Iwencai API client for natural language stock queries."""
 
     def __init__(self, api_key: str | None = None):
-        self.api_key = api_key or _get_api_key()
+        self.api_key = _get_api_key() if api_key is None else api_key
 
     def _headers(self, skill_id: str = "query2data") -> dict[str, str]:
         trace_id = uuid.uuid4().hex

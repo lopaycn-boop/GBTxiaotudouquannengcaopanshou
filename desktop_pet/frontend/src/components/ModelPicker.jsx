@@ -12,7 +12,7 @@ export default function ModelPicker({ currentModel, onSwitch }) {
       <button
         className="model-picker-trigger"
         onClick={() => setOpen(!open)}
-        title="切换桌宠模型"
+        title="切换AI助手模型"
       >
         <span className="model-picker-avatar">
           {active ? (active.nameZh || active.name).charAt(0) : '?'}
@@ -25,7 +25,7 @@ export default function ModelPicker({ currentModel, onSwitch }) {
         <>
           <div className="model-picker-overlay" onClick={() => setOpen(false)} />
           <div className="model-picker-dropdown">
-            <div className="model-picker-header">🎭 选择桌宠模型</div>
+            <div className="model-picker-header">🎭 选择AI助手模型</div>
             {models.map(m => {
               const unavailable = m.available === false
               return (

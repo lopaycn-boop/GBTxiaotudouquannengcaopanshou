@@ -1,7 +1,7 @@
 {
-  "name": "potato-desktop-pet",
+  "name": "potato-ai-trader",
   "version": "1.21.0",
-  "description": "小土豆 AI操盘桌宠 — 自动交易+全电脑操控+Live2D",
+  "description": "🌱 GBTxiaotudou AI操盘 — 自动交易+全电脑操控+AI助手",
   "author": "自由的风",
   "main": "main.js",
   "scripts": {
@@ -14,7 +14,7 @@
   },
   "build": {
     "appId": "com.openclaw.potato-pet",
-    "productName": "小土豆 AI操盘桌宠",
+    "productName": "GBTxiaotudou AI操盘",
     "npmRebuild": true,
     "asar": false,
     "directories": {
@@ -78,7 +78,7 @@
       "unicode": true
     },
     "portable": {
-      "artifactName": "小土豆AI操盘桌宠-${version}-Portable.exe"
+      "artifactName": "GBTxiaotudouAI操盘-${version}-Portable.exe"
     },
     "mac": {
       "target": [
@@ -104,7 +104,7 @@
     "publish": {
       "provider": "github",
       "owner": "lopaycn-boop",
-      "repo": "a-stock-desktop-pet"
+      "repo": "GBTxiaotudouAI操盘"
     }
   },
   "devDependencies": {

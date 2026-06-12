@@ -1,6 +1,6 @@
 """Vault — 小土豆的密钥保险箱。
 
-用户通过桌宠给密钥，小土豆存入数据库，拿到密钥就能操作对应平台。
+用户通过AI助手给密钥，小土豆存入数据库，拿到密钥就能操作对应平台。
 
 存储层：SQLite (本地) / CockroachDB (云端)，与现有 DB 共用。
 安全：密钥存储时 Fernet(AES-128-CBC + HMAC-SHA256) 加密，读取时自动解密。
@@ -298,7 +298,11 @@ class Vault:
         if not row:
             return ""
         raw = row["value"] if isinstance(row, dict) else row[0]
-        return _decrypt(raw)
+        try:
+            return _decrypt(raw)
+        except RuntimeError:
+            logger.warning("Vault.get(%s): decryption failed, returning empty string", key)
+            return ""
 
     def exists(self, key: str) -> bool:
         with self.db.connect() as conn:

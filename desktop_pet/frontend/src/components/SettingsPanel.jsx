@@ -156,7 +156,7 @@ export default function SettingsPanel({ onClose, wakeListening, toggleWakeWord, 
           </Section>
 
           <div style={{ fontSize: 11, color: '#555', textAlign: 'center', marginTop: 12 }}>
-            小土豆 AI操盘桌宠 v1.5.0 · 设置自动保存
+        GBTxiaotudou AI操盘 v1.21.0 · 设置自动保存
           </div>
         </div>
       </div>

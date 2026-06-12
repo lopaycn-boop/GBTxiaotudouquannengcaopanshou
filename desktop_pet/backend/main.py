@@ -136,7 +136,7 @@ _PURE_MOTION_PATTERNS = re.compile(
 )
 
 def _is_pure_motion_command(text: str) -> bool:
-    """判断是否是纯动作口令（只触发桌宠动作，不走AI对话）"""
+    """判断是否是纯动作口令（只触发AI助手动作，不走AI对话）"""
     if not text:
         return False
     return bool(_PURE_MOTION_PATTERNS.match(text.strip()))
@@ -157,7 +157,7 @@ async def lifespan(app: FastAPI):
     banner_lines = [
         "",
         "╔══════════════════════════════════════════════╗",
-        "║     🥔 小土豆 AI操盘桌宠  v{}              ║".format(__version__),
+        "║     🥔 小土豆 AI操盘  v{}              ║".format(__version__),
         "║     Author: {}                          ║".format(__author__),
         "║     Build: {}                           ║".format(BUILD),
         "╠══════════════════════════════════════════════╣",
@@ -286,7 +286,7 @@ async def http_rate_limit_middleware(request: Request, call_next):
 
 
 class PotatoPetBrain:
-    """小土豆桌宠大脑：AI 分析 + 浏览器操盘 + 对话交互。"""
+    """小土豆AI助手大脑：AI 分析 + 浏览器操盘 + 对话交互。"""
 
     def __init__(self):
         self.state = "idle"
@@ -382,7 +382,7 @@ class PotatoPetBrain:
 
         return {
             "role": "system",
-            "content": f"""你是「小土豆」，一个 AI A股操盘手桌宠，由 OpenClaw Pi 框架驱动，大模型使用 DeepSeek。
+            "content": f"""你是「小土豆」，一个 AI A股操盘手AI助手，由 OpenClaw Pi 框架驱动，大模型使用 DeepSeek。
 
 核心能力：
 1. 如果用户电脑有股票APP（同花顺/东方财富等），直接打开操盘
@@ -706,7 +706,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
     await websocket.accept()
     active_websockets.append(websocket)
-    logger.info("桌宠 WebSocket 连接建立 from %s", client_host)
+    logger.info("AI助手 WebSocket 连接建立 from %s", client_host)
 
     async def send_to_frontend(type_str, payload):
         try:
@@ -771,7 +771,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 text = await AIService.speech_to_text(audio_b64)
                 logger.info("语音识别结果: %s", repr(text) if text else "(空)")
                 if text:
-                    # 先发送STT结果给前端（前端会解析动作指令触发桌宠肢体动作）
+                    # 先发送STT结果给前端（前端会解析动作指令触发AI助手肢体动作）
                     await send_to_frontend("voice_stt_result", {"text": text})
                     # 检查是否是纯动作口令（只触发动作不走AI）
                     pure_motion = _is_pure_motion_command(text)
@@ -1007,7 +1007,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 await send_to_frontend("error", {"info": f"未知消息类型: {msg_type}"})
 
     except WebSocketDisconnect:
-        logger.info("桌宠 WebSocket 断开连接")
+        logger.info("AI助手 WebSocket 断开连接")
         if websocket in active_websockets:
             active_websockets.remove(websocket)
         for t in list(_spawned_tasks):

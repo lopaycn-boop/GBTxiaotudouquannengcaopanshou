@@ -1,10 +1,9 @@
-const { app, BrowserWindow, screen, protocol, net } = require('electron');
+const { app, BrowserWindow, screen, protocol, net, ipcMain, globalShortcut } = require('electron');
 const path = require('path');
 const { spawn, execSync } = require('child_process');
 const fs = require('fs');
 
-// ── Register app:// protocol BEFORE app.ready for fetch() support in packaged mode ──
-// Chromium blocks fetch() on file:// — app:// avoids this entirely.
+// ── Register app:// protocol BEFORE app.ready ──
 protocol.registerSchemesAsPrivileged([{
   scheme: 'app',
   privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true },
@@ -16,68 +15,44 @@ app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-features', 'HardwareMediaKeyHandling,MediaSessionService');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('enable-media-stream');
+//app.commandLine.appendSwitch('enable-transparent-visuals');
 
 let backendProcess = null;
 let backendShutdown = false;
-let backendStarted = false;
 let backendReady = false;
+let mainWindow = null;
 
-const LOG_FILE = path.join(app.getPath('userData'), 'backend.log');
+const BACKEND_PORT = 8003;
+const LOG_FILE = path.join(app.getPath('userData'), 'glass-app.log');
+const APP_NAME = 'GBTxiaotudou 全能操盘手';
+
 const logger = {
-  info: (msg) => {
-    const line = `[${new Date().toISOString()}] ℹ️  ${msg}`;
-    console.log(line);
-    fs.appendFileSync(LOG_FILE, line + '\n', 'utf-8');
-  },
-  success: (msg) => {
-    const line = `[${new Date().toISOString()}] ✅ ${msg}`;
-    console.log(line);
-    fs.appendFileSync(LOG_FILE, line + '\n', 'utf-8');
-  },
-  warn: (msg) => {
-    const line = `[${new Date().toISOString()}] ⚠️  ${msg}`;
-    console.warn(line);
-    fs.appendFileSync(LOG_FILE, line + '\n', 'utf-8');
-  },
-  error: (msg) => {
-    const line = `[${new Date().toISOString()}] ❌ ${msg}`;
-    console.error(line);
-    fs.appendFileSync(LOG_FILE, line + '\n', 'utf-8');
-  },
+  info: (msg) => { const l = `[${new Date().toISOString()}] ℹ️  ${msg}`; console.log(l); fs.appendFileSync(LOG_FILE, l + '\n', 'utf-8'); },
+  success: (msg) => { const l = `[${new Date().toISOString()}] ✅ ${msg}`; console.log(l); fs.appendFileSync(LOG_FILE, l + '\n', 'utf-8'); },
+  warn: (msg) => { const l = `[${new Date().toISOString()}] ⚠️  ${msg}`; console.warn(l); fs.appendFileSync(LOG_FILE, l + '\n', 'utf-8'); },
+  error: (msg) => { const l = `[${new Date().toISOString()}] ❌ ${msg}`; console.error(l); fs.appendFileSync(LOG_FILE, l + '\n', 'utf-8'); },
 };
 
 logger.info('═════════════════════════════════════════');
-logger.info('小土豆桌宠启动');
-logger.info(`应用版本: 1.0.0 | 平台: ${process.platform} | Electron: ${process.versions.electron}`);
+logger.info(`${APP_NAME} 玻璃悬浮APP启动`);
+logger.info(`版本: 2.0.0 | 平台: ${process.platform} | Electron: ${process.versions.electron}`);
 
 function getResourcePath() {
-  if (app.isPackaged) {
-    return path.join(process.resourcesPath);
-  }
-  return path.join(__dirname, '..', '..');
+  return app.isPackaged ? path.join(process.resourcesPath) : path.join(__dirname, '..', '..');
 }
 
 function findPython() {
   const resourcesPath = getResourcePath();
-  const embeddedPython = path.join(resourcesPath, 'python', 'python', 'python.exe');
-  logger.info(`🔍 搜索 Python...`);
-  logger.info(`   embedded: ${embeddedPython}`);
-  if (fs.existsSync(embeddedPython)) {
-    logger.success(`找到嵌入式 Python: ${embeddedPython}`);
-    return embeddedPython;
-  }
+  const embeddedPython = path.join(resourcesPath, 'python', 'python.exe');
+  if (fs.existsSync(embeddedPython)) { logger.success(`找到嵌入式Python: ${embeddedPython}`); return embeddedPython; }
   const candidates = process.platform === 'win32'
     ? ['python', 'python3', 'py', 'C:\\Python311\\python.exe', 'C:\\Python312\\python.exe']
     : ['python3', 'python'];
   for (const cmd of candidates) {
-    try {
-      execSync(`${cmd} --version`, { stdio: 'pipe', timeout: 5000 });
-      logger.success(`找到系统 Python: ${cmd}`);
-      return cmd;
-    } catch (_) { logger.warn(`   ${cmd} 不可用`); }
+    try { execSync(`${cmd} --version`, { stdio: 'pipe', timeout: 5000 }); logger.success(`找到系统Python: ${cmd}`); return cmd; }
+    catch (_) {}
   }
-  logger.error('❌ 未找到 Python！');
-  return null;
+  logger.error('未找到Python！'); return null;
 }
 
 function findBackendDir() {
@@ -85,37 +60,11 @@ function findBackendDir() {
   const possible = [
     path.join(resourcesPath, 'backend'),
     path.join(__dirname, '..', 'backend'),
-    path.join(__dirname, 'backend'),
   ];
-  logger.info(`🔍 搜索后端目录...`);
   for (const dir of possible) {
-    logger.info(`   检查: ${dir}`);
-    if (fs.existsSync(path.join(dir, 'main.py'))) {
-      logger.success(`找到后端: ${dir}`);
-      return dir;
-    }
+    if (fs.existsSync(path.join(dir, 'main.py'))) { logger.success(`找到后端: ${dir}`); return dir; }
   }
-  logger.error('❌ 未找到后端目录！');
-  return null;
-}
-
-function checkBackendHealth(timeout = 3000) {
-  return new Promise((resolve) => {
-    let healthChecks = 0;
-    const maxChecks = Math.ceil(timeout / 500);
-    const check = () => {
-      healthChecks++;
-      if (healthChecks > maxChecks) { logger.error(`后端健康检查超时 (${timeout}ms)`); resolve(false); return; }
-      if (!backendProcess || backendProcess.killed) { logger.error('后端进程已退出'); resolve(false); return; }
-      const http = require('http');
-      const req = http.get('http://localhost:8000/health', { timeout: 500 }, (res) => {
-        if (res.statusCode === 200) { logger.success('后端健康检查通过'); resolve(true); }
-        else { logger.warn(`后端返回状态码 ${res.statusCode}，重试...`); setTimeout(check, 500); }
-      });
-      req.on('error', () => { if (healthChecks < maxChecks) { setTimeout(check, 500); } else { logger.error('后端健康检查最终失败'); resolve(false); } });
-    };
-    check();
-  });
+  logger.error('未找到后端目录！'); return null;
 }
 
 function findPotatoDir() {
@@ -123,163 +72,178 @@ function findPotatoDir() {
   const possible = [
     path.join(resourcesPath, 'potato'),
     path.join(__dirname, '..', '..', 'potato'),
-    path.join(__dirname, 'potato'),
   ];
-  logger.info('🔍 搜索 potato 核心包...');
   for (const dir of possible) {
-    logger.info(`   检查: ${dir}`);
-    if (fs.existsSync(path.join(dir, '__init__.py'))) {
-      logger.success(`找到 potato 包: ${dir}`);
-      return dir;
-    }
+    if (fs.existsSync(path.join(dir, '__init__.py'))) { logger.success(`找到potato包: ${dir}`); return dir; }
   }
-  logger.warn('⚠️  未找到 potato 包目录，后端可能无法启动');
   return null;
 }
 
-function findConfigDir() {
-  const resourcesPath = getResourcePath();
-  const possible = [
-    path.join(resourcesPath, 'config'),
-    path.join(__dirname, '..', '..', 'config'),
-  ];
-  for (const dir of possible) {
-    if (fs.existsSync(dir)) { logger.success(`找到 config: ${dir}`); return dir; }
-  }
-  return null;
+function checkBackendHealth(timeout = 10000) {
+  return new Promise((resolve) => {
+    let checks = 0;
+    const max = Math.ceil(timeout / 500);
+    const check = () => {
+      checks++;
+      if (checks > max) { logger.error(`后端健康检查超时(${timeout}ms)`); resolve(false); return; }
+      if (!backendProcess || backendProcess.killed) { resolve(false); return; }
+      const http = require('http');
+      const req = http.get(`http://localhost:${BACKEND_PORT}/health`, { timeout: 500 }, (res) => {
+        if (res.statusCode === 200) { logger.success('后端健康检查通过'); resolve(true); }
+        else { setTimeout(check, 500); }
+      });
+      req.on('error', () => { if (checks < max) setTimeout(check, 500); else resolve(false); });
+    };
+    check();
+  });
 }
 
 function startBackend() {
-  logger.info('🚀 启动后端...\n');
+  logger.info('启动后端...');
   const py = findPython();
-  if (!py) { logger.error('Python 不可用'); return; }
+  if (!py) { logger.error('Python不可用'); return; }
   const backendDir = findBackendDir();
   if (!backendDir) { logger.error('后端目录不可用'); return; }
   const env = { ...process.env };
-  env.PORT = '8000';
+  env.PORT = String(BACKEND_PORT);
+  env.PET_BACKEND_PORT = String(BACKEND_PORT);
   env.POTATO_SECRETS_ENV_FALLBACK = 'true';
   env.POTATO_TRADING_MODE = env.POTATO_TRADING_MODE || 'dry_run';
   const potatoDir = findPotatoDir();
-  const configDir = findConfigDir();
   const pythonPaths = [backendDir];
   if (potatoDir) pythonPaths.push(path.dirname(potatoDir));
-  if (configDir) pythonPaths.push(path.dirname(configDir));
   env.PYTHONPATH = pythonPaths.join(path.delimiter);
-  let stderrBuffer = '';
+  const isPackaged = app.isPackaged;
+  const uvicornApp = isPackaged ? 'main:app' : 'desktop_pet.backend.main:app';
   try {
-    backendProcess = spawn(py, ['main.py'], { cwd: backendDir, stdio: ['ignore', 'pipe', 'pipe'], env, detached: false });
-    backendStarted = true;
-    backendProcess.stdout.on('data', (data) => { const msg = data.toString().trim(); if (msg) { console.log('[backend]', msg); fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [backend] ${msg}\n`, 'utf-8'); } });
-    backendProcess.stderr.on('data', (data) => { const msg = data.toString().trim(); if (msg) { console.error('[backend]', msg); stderrBuffer += msg + '\n'; fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [backend-err] ${msg}\n`, 'utf-8'); } });
+    backendProcess = spawn(py, ['-m', 'uvicorn', uvicornApp, '--host', '127.0.0.1', '--port', String(BACKEND_PORT)], { cwd: backendDir, stdio: ['ignore', 'pipe', 'pipe'], env, detached: false });
+    backendProcess.stdout.on('data', (data) => { const msg = data.toString().trim(); if (msg) fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [backend] ${msg}\n`, 'utf-8'); });
+    backendProcess.stderr.on('data', (data) => { const msg = data.toString().trim(); if (msg) fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [backend-err] ${msg}\n`, 'utf-8'); });
     backendProcess.on('error', (e) => { logger.error(`后端进程错误: ${e.message}`); });
-    backendProcess.on('exit', (code, signal) => { if (!backendShutdown) { logger.error(`后端意外退出 (code=${code}, signal=${signal})`); } backendReady = false; });
+    backendProcess.on('exit', (code, signal) => { if (!backendShutdown) { logger.error(`后端意外退出(code=${code})`); } backendReady = false; });
     logger.success(`后端进程已启动 (PID: ${backendProcess.pid})`);
-    setTimeout(() => { if (!backendReady) { checkBackendHealth(3000).then((healthy) => { if (healthy) { backendReady = true; logger.success('🎉 后端已准备就绪！'); } else { logger.warn('⚠️  后端启动缓慢或未就绪，等待中...'); } }); } }, 1000);
   } catch (e) { logger.error(`启动后端异常: ${e.message}`); }
-}
-
-function registerAppProtocol() {
-  const distDir = app.isPackaged
-    ? path.join(process.resourcesPath, 'frontend-dist')
-    : path.join(__dirname, 'dist');
-
-  // Use protocol.handle with net.fetch from file:// URL.
-  // registerSchemesAsPrivileged with supportFetchAPI:true makes this work
-  // for JS module loading and Live2D model fetch().
-  protocol.handle('app', (request) => {
-    const urlPath = decodeURI(new URL(request.url).pathname);
-    const relativePath = urlPath.replace(/^\//, '');
-    const filePath = path.join(distDir, relativePath);
-    logger.info(`[app://] ${request.url} → ${filePath}`);
-    // net.fetch requires proper file:// URL on Windows
-    const fileUrl = 'file:///' + filePath.replace(/\\/g, '/');
-    return net.fetch(fileUrl);
-  });
-
-  logger.info(`Registered app:// protocol → ${distDir}`);
-}
-
-function createWindow() {
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
-
-  const win = new BrowserWindow({
-    width: 1100,
-    height: 750,
-    x: Math.max(0, (width - 1100) / 2),
-    y: Math.max(0, (height - 750) / 2),
-    frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
-    alwaysOnTop: true,
-    hasShadow: false,
-    resizable: true,
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-    },
-  });
-
-  // 麦克风权限：自动允许所有媒体权限
-  win.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-    if (['media', 'audioCapture', 'videoCapture', 'midi', 'clipboardRead', 'clipboardWrite'].includes(permission)) {
-      callback(true);
-    } else {
-      callback(true);
-    }
-  });
-  win.webContents.session.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
-    return true;
-  });
-
-  const isDev = !app.isPackaged;
-  if (isDev) {
-    win.loadURL('http://localhost:5173');
-  } else {
-    // Packaged: use app:// custom protocol — not file:// — so fetch() works
-    // for Live2D model/resource loading (Chromium blocks fetch on file://).
-    win.loadURL('app://localhost/index.html');
-  }
-
-  // 不穿透 — 依赖CSS pointer-events来控制穿透
-  // 透明区域pointer-events:none, 聊天卡片pointer-events:auto
-  // 这样窗口可通过聊天卡片头拖拽
-
-  win.on('did-fail-load', (_e, code, desc) => { logger.error(`页面加载失败: ${code} ${desc}`); });
-  win.on('render-process-gone', (_e, details) => { logger.error(`渲染进程崩溃: ${details.reason}`); setTimeout(() => win.reload(), 1000); });
-  // DEBUG: Capture renderer console to log file
-  win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
-    const levelName = ['verbose','info','warning','error'][level] || level;
-    const lineInfo = sourceId ? ` (${sourceId}:${line})` : '';
-    fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [renderer:${levelName}] ${message}${lineInfo}\n`, 'utf-8');
-  });
-  // DEBUG: Open DevTools in packaged mode to diagnose Live2D loading
-  if (!isDev) {
-    win.webContents.openDevTools({ mode: 'detach' });
-  }
-  logger.success('前端窗口已创建');
 }
 
 function killBackend() {
   if (!backendProcess) return;
   backendShutdown = true;
-  logger.info('🛑 停止后端进程...');
+  logger.info('停止后端...');
   try {
     if (process.platform === 'win32') { execSync(`taskkill /pid ${backendProcess.pid} /T /F`, { stdio: 'ignore', timeout: 5000 }); }
     else { backendProcess.kill('SIGTERM'); }
     logger.success('后端已停止');
-  } catch (e) { logger.warn(`后端强制关闭: ${e.message}`); try { backendProcess.kill(); } catch (__) {} }
+  } catch (e) { try { backendProcess.kill(); } catch (__) {} }
   backendProcess = null;
 }
 
+function registerAppProtocol() {
+  const glassDir = app.isPackaged
+    ? path.join(process.resourcesPath, 'glass-app')
+    : path.join(__dirname, 'glass_app');
+
+  protocol.handle('app', (request) => {
+    const urlPath = decodeURI(new URL(request.url).pathname);
+    const relativePath = urlPath.replace(/^\//, '') || 'index.html';
+    const filePath = path.join(glassDir, relativePath);
+    const fileUrl = 'file:///' + filePath.replace(/\\/g, '/');
+    return net.fetch(fileUrl);
+  });
+  logger.info(`Registered app:// protocol → ${glassDir}`);
+}
+
+function createWindow() {
+  const { width: screenW, height: screenH } = screen.getPrimaryDisplay().workAreaSize;
+  const winW = Math.min(1400, Math.floor(screenW * 0.85));
+  const winH = Math.min(900, Math.floor(screenH * 0.88));
+
+  mainWindow = new BrowserWindow({
+    width: winW,
+    height: winH,
+    x: Math.max(0, (screenW - winW) / 2),
+    y: Math.max(0, (screenH - winH) / 2),
+    frame: false,           // 无边框
+    transparent: false,     // 不透明（新UI自带深色背景）
+    backgroundColor: '#1a1a1b',
+    alwaysOnTop: false,
+    hasShadow: true,
+    resizable: true,
+    minWidth: 900,
+    minHeight: 600,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+      webgl: true,
+      webSecurity: false,  // 允许file://页面嵌入http:// iframe
+      webviewTag: true,    // 允许webview嵌入外部页面
+    },
+  });
+
+  // 全部权限自动允许
+  mainWindow.webContents.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(true));
+  mainWindow.webContents.session.setPermissionCheckHandler(() => true);
+
+  const isDev = !app.isPackaged;
+  if (isDev) {
+    // 开发模式: 加载glass_app/index.html
+    const glassPath = path.join(__dirname, 'glass_app', 'index.html');
+    mainWindow.loadURL('file:///' + glassPath.replace(/\\/g, '/'));
+  } else {
+    mainWindow.loadURL('app://localhost/index.html');
+  }
+
+  // 渲染器日志
+  mainWindow.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+    const lvl = ['verbose','info','warning','error'][level] || level;
+    fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [renderer:${lvl}] ${message} (${sourceId}:${line})\n`, 'utf-8');
+  });
+
+  // 渲染进程崩溃保护：自动重载而不是关闭窗口
+  mainWindow.webContents.on('render-process-gone', (_e, details) => {
+    logger.error(`渲染进程崩溃: ${details.reason} ${details.exitCode}`);
+    if (details.reason === 'crashed' || details.reason === 'oom') {
+      setTimeout(() => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload(); }, 1000);
+    }
+  });
+  mainWindow.webContents.on('crashed', () => {
+    logger.error('渲染进程crashed，1秒后重载...');
+    setTimeout(() => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload(); }, 1000);
+  });
+
+  mainWindow.on('closed', () => { mainWindow = null; });
+  logger.success('玻璃悬浮窗口已创建');
+}
+
+// ── IPC: 窗口控制 ──
+ipcMain.on('window-minimize', () => { if (mainWindow) mainWindow.minimize(); });
+ipcMain.on('window-maximize', () => { if (mainWindow) { mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize(); } });
+ipcMain.on('window-close', () => { if (mainWindow) mainWindow.close(); });
+ipcMain.on('window-always-on-top', (_e, flag) => { if (mainWindow) mainWindow.setAlwaysOnTop(flag); });
+ipcMain.on('eval-js', (_e, code) => { if (mainWindow) mainWindow.webContents.executeJavaScript(code).catch(()=>{}); });
+
 app.whenReady().then(() => {
-  registerAppProtocol();
-  startBackend();
-  // 延迟创建窗口，等后端启动
-  setTimeout(() => {
-    createWindow();
-  }, 1500);
+  // 检查后端是否已经在运行
+  checkBackendHealth(2000).then((healthy) => {
+    if (!healthy) {
+      startBackend();
+    } else {
+      logger.success('后端已在运行');
+      backendReady = true;
+    }
+    // 等后端就绪再开窗
+    const waitAndCreate = () => {
+      checkBackendHealth(15000).then((ok) => {
+        if (ok) { backendReady = true; }
+        createWindow();
+      });
+    };
+    setTimeout(waitAndCreate, 2000);
+  });
 });
 
-app.on('window-all-closed', () => { killBackend(); if (process.platform !== 'darwin') app.quit(); });
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') { killBackend(); app.quit(); } });
 app.on('before-quit', () => { killBackend(); logger.info('应用已关闭'); });
-process.on('uncaughtException', (err) => { logger.error(`未捕获异常: ${err.message}`); logger.error(err.stack); });
+process.on('uncaughtException', (err) => { logger.error(`未捕获异常: ${err.message}`); });
+
+// 阻止渲染进程崩溃导致整个应用退出
+app.on('render-process-gone', (_e, _wc, details) => { logger.error('app级渲染崩溃: ' + details.reason); });

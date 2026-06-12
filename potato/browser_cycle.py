@@ -28,6 +28,8 @@ from potato.analysis import (
     format_analysis_for_pet,
 )
 from potato.browser.actions import BrowserTrader
+from potato.browser.verify import BrowserVerifier, VerifyConfig
+from potato.cache import get_decision_cache
 from potato.browser.engine import BrowserEngine
 from potato.browser.platforms import PlatformRegistry
 from potato.config import load_settings
@@ -92,7 +94,7 @@ async def run_browser_cycle(run_id: str | None = None) -> dict[str, Any]:
             summary["steps"].append("no_platforms_configured")
             summary["status"] = "completed"
             summary["pet_message"] = (
-                "你还没有配置任何交易平台哦~ 在桌宠里告诉我你用什么平台吧！\n"
+                "你还没有配置任何交易平台哦~ 在AI助手里告诉我你用什么平台吧！\n"
                 "可用平台: 东方财富、同花顺、雪球"
             )
             db.finish_cycle(run_id, "completed", summary)
@@ -157,7 +159,7 @@ async def run_browser_cycle(run_id: str | None = None) -> dict[str, Any]:
                     if is_login_page:
                         summary["steps"].append({
                             "login_needed": platform.platform_id,
-                            "hint": f"请在桌宠里完成 {platform.name} 的登录，登录后小土豆会自动操盘",
+                            "hint": f"请在AI助手里完成 {platform.name} 的登录，登录后小土豆会自动操盘",
                         })
 
             summary["steps"].append({"login_check": login_status})
@@ -184,14 +186,26 @@ async def run_browser_cycle(run_id: str | None = None) -> dict[str, Any]:
         combined_portfolio = "\n\n".join(portfolio_texts) or ""
         summary["steps"].append({"portfolio_read": len(portfolio_texts)})
 
-        # Step 6: AI deep analysis
+        # Step 6: AI deep analysis (with decision cache)
         _mode_desc = "; ".join(f"{p.name}={platform_modes[p.platform_id]}" for p in platforms)
-        analysis_result = await analyze_stocks(
-            news=news,
-            portfolio_text=combined_portfolio,
-            user_prefs=user_prefs,
-            platform_names=platform_names,
-        )
+        decision_cache = get_decision_cache()
+        cached = decision_cache.get(news, combined_portfolio, user_prefs, platform_names)
+        if cached is not None:
+            analysis_result = cached
+            logger.info("决策缓存命中，跳过LLM分析")
+            summary["steps"].append({"analysis_cache": "hit"})
+        else:
+            analysis_result = await analyze_stocks(
+                news=news,
+                portfolio_text=combined_portfolio,
+                user_prefs=user_prefs,
+                platform_names=platform_names,
+            )
+            if analysis_result.get("ok"):
+                decision_cache.put(news, combined_portfolio, user_prefs, platform_names, analysis_result)
+            summary["steps"].append({"analysis_cache": "miss"})
+        cache_stats = decision_cache.stats()
+        logger.info("决策缓存统计: %s", cache_stats.summary())
         summary["analysis"] = analysis_result
         summary["steps"].append({"analysis_ok": analysis_result.get("ok")})
 
@@ -381,12 +395,70 @@ async def _execute_ai_trade(
     if not instructions:
         return {"ok": False, "symbol": symbol, "error": "no_instructions_generated"}
 
-    trade_result = await trader.execute_browser_trade(
-        platform_id=platform.platform_id,
-        action=action,
-        symbol=symbol,
-        amount=str(pick.get("entry_price", "")),
-        ai_instructions=instructions,
+    # 操作验证闭环：每步操作前后截图对比+异常检测
+    verifier = BrowserVerifier(VerifyConfig(max_retries=2, capture_screenshots=True))
+
+    async def _screenshot_fn():
+        shot = await trader.engine.screenshot(platform.platform_id)
+        return shot
+
+    async def _page_text_fn():
+        return await trader.engine.get_page_text(platform.platform_id)
+
+    async def _execute_step(step):
+        step_action = step.get("action", "")
+        if step_action == "navigate":
+            await trader.engine.navigate(platform.platform_id, step["url"])
+        elif step_action == "click":
+            await trader.engine.click_element(platform.platform_id, step["selector"])
+        elif step_action == "fill":
+            page = await trader.engine.get_page(platform.platform_id)
+            await page.fill(step["selector"], step["value"])
+        elif step_action == "wait":
+            await asyncio.sleep(float(step.get("seconds", 1)))
+        elif step_action == "screenshot":
+            pass  # screenshot captured by verifier
+        elif step_action == "read":
+            pass  # text captured by verifier
+
+    verification = await verifier.verify_trade(
+        steps=instructions,
+        execute_step_fn=_execute_step,
+        screenshot_fn=_screenshot_fn,
+        page_text_fn=_page_text_fn,
     )
+
+    # 保存platform状态
+    await trader.engine.save_platform_state(platform.platform_id)
+
+    # 兼容旧接口：同时保留原始execute结果格式
+    trade_result = {
+        "ok": verification.ok,
+        "trade": {"action": action, "symbol": symbol, "amount": str(pick.get("entry_price", ""))},
+        "steps_executed": verification.total_steps,
+        "verification": {
+            "passed": verification.passed_steps,
+            "failed": verification.failed_steps,
+            "retried": verification.retried_steps,
+            "anomalies": verification.anomalies,
+            "elapsed_ms": verification.total_elapsed_ms,
+        },
+        "step_details": [
+            {
+                "index": s.step_index,
+                "action": s.action,
+                "status": s.status.value,
+                "ssim": s.ssim_score,
+                "change_pct": s.change_pct,
+                "retries": s.retries,
+                "anomaly": s.anomaly_detected,
+                "error": s.error,
+            }
+            for s in verification.steps
+        ],
+    }
+
+    logger.info("交易验证摘要:
+%s", verification.summary())
 
     return {**trade_result, "symbol": symbol, "mode": mode, "pick": pick}

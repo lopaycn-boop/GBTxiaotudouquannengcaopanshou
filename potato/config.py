@@ -8,7 +8,6 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
-from potato.bootstrap_config import build_crdb_dsn, load_bootstrap_settings
 from potato.secret_store import load_db_secrets, resolve_secret
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,17 +16,12 @@ load_dotenv(ROOT / ".env")
 
 @dataclass(frozen=True)
 class Settings:
+    """本地APP配置 — 去掉Zeabur/CRDB云端依赖"""
     chain_id: int
     tag_id: int
     trading_mode: str
-    _crdb_url: str
-    _crdb_ssl_root_cert: str
     github_token: str
     deepseek_api_key: str
-    zeabur_api_key: str
-    zeabur_project_id: str
-    zeabur_service_id: str
-    zeabur_environment_id: str
     github_repo: str
     max_single_cny: Decimal
     max_daily_cny: Decimal
@@ -57,17 +51,35 @@ class Settings:
     def dry_run(self) -> bool:
         return self.trading_mode.lower() != "live"
 
+    # ── CRDB兼容属性 — 本地APP不用CRDB，返回空让db.py fallback到SQLite ──
     @property
     def crdb_url(self) -> str:
-        return self._crdb_url
+        return ""
 
     @property
     def crdb_ssl_root_cert(self) -> str:
-        return self._crdb_ssl_root_cert
+        return ""
 
     @property
     def crdb_dsn(self) -> str:
-        return build_crdb_dsn(self._crdb_url, self._crdb_ssl_root_cert)
+        return ""
+
+    # ── Zeabur兼容属性 — 本地APP不用Zeabur ──
+    @property
+    def zeabur_api_key(self) -> str:
+        return ""
+
+    @property
+    def zeabur_project_id(self) -> str:
+        return ""
+
+    @property
+    def zeabur_service_id(self) -> str:
+        return ""
+
+    @property
+    def zeabur_environment_id(self) -> str:
+        return ""
 
 
 def _dec(name: str, default: str, secrets: dict[str, str] | None = None) -> Decimal:
@@ -91,29 +103,17 @@ def load_settings(*, use_db_secrets: bool = True) -> Settings:
     risk = cfg.get("risk", {})
     oc = cfg.get("openclaw", {})
 
-    bootstrap = load_bootstrap_settings()
     secrets: dict[str, str] = _load_db_secrets() if use_db_secrets else {}
 
     def s(key: str, *env_names: str, default: str = "") -> str:
         return resolve_secret(key, secrets, *env_names, default=default)
 
-    crdb_url = bootstrap.crdb_url or s("CRDB_DATABASE_URL", "CRDB_DATABASE_URL")
-    crdb_cert = bootstrap.crdb_ssl_root_cert or s(
-        "CRDB_SSL_ROOT_CERT", "CRDB_SSL_ROOT_CERT", default="/data/postgresql/root.crt"
-    )
-
     return Settings(
         chain_id=int(cfg.get("chain_id", 0)),
         tag_id=int(cfg.get("tag_id", 0)),
         trading_mode=s("POTATO_TRADING_MODE", "POTATO_TRADING_MODE", default="dry_run"),
-        _crdb_url=crdb_url,
-        _crdb_ssl_root_cert=crdb_cert,
         github_token=s("GITHUB_TOKEN", "GITHUB_TOKEN", "GITHUB_PAT", "GITHUB_PUSH_TOKEN"),
         deepseek_api_key=s("DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY"),
-        zeabur_api_key=s("ZEABUR_API_KEY", "ZEABUR_API_KEY"),
-        zeabur_project_id=s("ZEABUR_PROJECT_ID", "ZEABUR_PROJECT_ID"),
-        zeabur_service_id=s("ZEABUR_SERVICE_ID", "ZEABUR_SERVICE_ID"),
-        zeabur_environment_id=s("ZEABUR_ENVIRONMENT_ID", "ZEABUR_ENVIRONMENT_ID"),
         github_repo=s("GITHUB_REPO", "GITHUB_REPO", default="YOUR_GITHUB_USERNAME/a-stock-desktop-pet"),
         potato_api_key=s("POTATO_API_KEY", "POTATO_API_KEY"),
         max_single_cny=_dec("POTATO_MAX_SINGLE_CNY", str(risk.get("max_single_cny", 300)), secrets),

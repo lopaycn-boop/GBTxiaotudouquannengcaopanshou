@@ -107,7 +107,7 @@ export function parseVoiceCommand(text) {
 
 /**
  * 检查文本是否是纯动作指令（不需要AI回复的动作口令）
- * 纯动作指令只触发桌宠动作，不走AI对话
+ * 纯动作指令只触发AI助手动作，不走AI对话
  */
 export function isPureMotionCommand(text) {
   if (!text) return false

@@ -225,7 +225,7 @@ _MAX_CONSECUTIVE = 3
 
 _MAX_RETRIES = 3
 _BACKOFF = [1.0, 2.0, 4.0]
-_TIMEOUT = httpx.Timeout(connect=8.0, read=60.0, write=10.0, pool=30.0)
+_TIMEOUT = httpx.Timeout(connect=3.0, read=30.0, write=5.0, pool=10.0)
 
 
 # ── Key resolution ─────────────────────────────────────────────────────
@@ -583,7 +583,7 @@ def analyze(prompt: str, *, system: str = "", settings: Settings | None = None, 
 
 def quick_chat(prompt: str, *, system: str = "", settings: Settings | None = None, max_tokens: int = 800) -> dict[str, Any]:
     """Quick chat task — prioritizes speed and cost efficiency."""
-    return chat(prompt, system=system or "你是小土豆，一个可爱的AI操盘桌宠。用简短中文回复。", settings=settings, max_tokens=max_tokens, task="chat", use_json=False)
+    return chat(prompt, system=system or "你是小土豆，一个可爱的AI操盘。用简短中文回复。", settings=settings, max_tokens=max_tokens, task="chat", use_json=False)
 
 
 # ── Legacy alias ───────────────────────────────────────────────────────
@@ -906,7 +906,7 @@ async def aanalyze(prompt: str, *, system: str = "", settings: Settings | None =
 
 
 async def aquick_chat(prompt: str, *, system: str = "", settings: Settings | None = None, max_tokens: int = 800) -> dict[str, Any]:
-    return await achat(prompt, system=system or "你是小土豆，一个可爱的AI操盘桌宠。用简短中文回复。", settings=settings, max_tokens=max_tokens, task="chat", use_json=False)
+    return await achat(prompt, system=system or "你是小土豆，一个可爱的AI操盘。用简短中文回复。", settings=settings, max_tokens=max_tokens, task="chat", use_json=False)
 
 
 # ── Base44 agent call ──────────────────────────────────────────────────

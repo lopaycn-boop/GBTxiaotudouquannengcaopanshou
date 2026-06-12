@@ -33,7 +33,7 @@ export default function SplashScreen({ stage = 'init', progress = 0 }) {
         {current.icon}
       </div>
       <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: 1 }}>
-        小土豆 AI操盘桌宠
+        GBTxiaotudou AI操盘
       </h1>
       <p style={{ margin: '8px 0 32px', fontSize: 14, color: 'rgba(255,255,255,0.6)' }}>
         {current.label}{dots}

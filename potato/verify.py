@@ -10,7 +10,7 @@ def verify():
     errors = []
     warnings = []
 
-    print(f"🥔 小土豆 AI操盘桌宠 v{__version__} (build {BUILD})")
+    print(f"🥔 小土豆 AI操盘 v{__version__} (build {BUILD})")
     print(f"   Author: {__author__}")
     print()
 

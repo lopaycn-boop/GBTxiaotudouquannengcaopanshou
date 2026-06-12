@@ -68,7 +68,7 @@ class BrowserTrader:
             "action": "manual_login_needed",
             "url": nav["url"],
             "screenshot_b64": base64.b64encode(screenshot).decode() if screenshot else None,
-            "hint": f"请在桌宠界面完成 {cfg.name} 登录",
+            "hint": f"请在AI助手界面完成 {cfg.name} 登录",
         }
 
     async def check_login_status(self, platform_id: str) -> dict[str, Any]:

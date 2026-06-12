@@ -1,5 +1,5 @@
 const zh = {
-  app_name: '小土豆 AI操盘桌宠',
+  app_name: 'GBTxiaotudou AI操盘',
   chat_placeholder: '输入消息或按 Ctrl+Enter 发送...',
   send: '发送',
   settings: '设置',

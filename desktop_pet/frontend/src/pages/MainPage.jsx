@@ -241,7 +241,7 @@ export default function MainPage() {
       }
     }, [recording, startRecording]),
     onMotionCommand: useCallback((text) => {
-      // 声控动作口令：直接触发桌宠肢体动作+表情
+      // 声控动作口令：直接触发AI助手肢体动作+表情
       const actions = parseVoiceCommand(text);
       actions.forEach(a => {
         if (live2dRef.current && live2dRef.current[a.method]) {
@@ -809,7 +809,7 @@ case 'billing_renewal_payment': {
       case 'voice_stt_result':
         if (payload?.text) {
           const voiceText = payload.text;
-          // 声控动作解析：触发桌宠肢体动作+表情
+          // 声控动作解析：触发AI助手肢体动作+表情
           const actions = parseVoiceCommand(voiceText);
           actions.forEach(a => {
             if (live2dRef.current && live2dRef.current[a.method]) {
@@ -956,7 +956,7 @@ case 'billing_renewal_payment': {
   const fullWsUrl = typeof window !== 'undefined' ? `${wsProto}${WS_URL}` : 'ws://127.0.0.1:8000/ws';
   const { sendPacket, connected } = useNeuroSocket(fullWsUrl, handleServerPacket);
 
-  // 自动启动语音唤醒——桌面只有桌宠，声控默认开启
+  // 自动启动语音唤醒——桌面只有AI助手，声控默认开启
   useEffect(() => {
     if (connected && !wakeListening) {
       startWakeListener();
@@ -1053,7 +1053,7 @@ case 'billing_renewal_payment': {
         const content = typeof m.content === 'string' ? m.content : '';
         return `${role} ${ts}\n\n${content}`;
       }).join('\n\n---\n\n');
-      const header = `# 🥔 小土豆 AI操盘桌宠 — 聊天记录\n\n*导出时间: ${new Date().toLocaleString()}*\n\n---\n\n`;
+      const header = `# 🌱 GBTxiaotudou AI操盘 — 聊天记录\n\n*导出时间: ${new Date().toLocaleString()}*\n\n---\n\n`;
       const blob = new Blob([header + md], { type: 'text/markdown;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -1382,7 +1382,7 @@ case 'billing_renewal_payment': {
       lang={isZh ? 'zh' : 'en'}
     />
     <div className="app">
-      {/* 桌宠：全屏，干净桌面只有桌宠 */}
+      {/* AI助手：全屏，干净桌面只有AI助手 */}
       <div className="pet-layer">
         <Live2DController ref={live2dRef} modelId={currentModel} />
 

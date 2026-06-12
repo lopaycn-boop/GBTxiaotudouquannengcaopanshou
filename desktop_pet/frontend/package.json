@@ -1,8 +1,8 @@
 {
   "name": "xiaotudou-desktop-pet",
-  "productName": "小土豆AI桌宠",
+  "productName": "GBTxiaotudou 全能操盘手",
   "version": "1.0.0",
-  "description": "小土豆 AI 股票操盘手桌宠 — OpenClaw Pi + DeepSeek + Live2D",
+  "description": "🌱 GBTxiaotudou 全能操盘手 — AI智能交易助手",
   "author": "OpenClaw",
   "private": true,
   "type": "module",
@@ -20,9 +20,9 @@
   },
   "build": {
     "appId": "com.xiaotudou.desktop-pet",
-    "productName": "小土豆AI桌宠",
+    "productName": "GBTxiaotudou 全能操盘手",
     "directories": {
-      "output": "release2"
+      "output": "release4"
     },
     "files": [
       "dist/**/*",
@@ -32,6 +32,13 @@
       "Start.vbs"
     ],
     "extraResources": [
+      {
+        "from": "glass_app",
+        "to": "glass-app",
+        "filter": [
+          "**/*"
+        ]
+      },
       {
         "from": "dist2",
         "to": "frontend-dist",
