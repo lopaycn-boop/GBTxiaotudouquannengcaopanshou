@@ -36,9 +36,24 @@
         "filter": ["**/*"]
       },
       {
-        "from": "../../dist/potato-backend",
-        "to": "potato-backend",
+        "from": "python-embed",
+        "to": "python-embed",
         "filter": ["**/*"]
+      },
+      {
+        "from": "../backend",
+        "to": "potato-backend",
+        "filter": [
+          "**/*.py",
+          "**/*.json",
+          "**/*.sql",
+          "**/*.txt",
+          "**/*.md",
+          "!**/__pycache__/**",
+          "!**/*.pyc",
+          "!**/test_*.py",
+          "!**/tests/**"
+        ]
       },
       {
         "from": "../../data",

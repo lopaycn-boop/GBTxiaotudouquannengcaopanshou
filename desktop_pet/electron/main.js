@@ -26,7 +26,7 @@ let isQuitting = false;
 let crashRestartCount = 0;
 const MAX_CRASH_RESTARTS = 3;
 
-let BACKEND_PORT = parseInt(process.env.PET_BACKEND_PORT || '8003', 10);
+let BACKEND_PORT = parseInt(process.env.PET_BACKEND_PORT || '8000', 10);
 const FRONTEND_PORT = 5173;
 const APP_NAME = 'GBTxiaotudou AI操盘';
 
@@ -119,6 +119,15 @@ async function grantAllPermissions() {
     }
   } catch(e) {}
 
+  // ── Windows: auto-grant media permissions in session ──
+  try {
+    const ses = require('electron').session.defaultSession;
+    ses.setPermissionRequestHandler((webContents, permission, callback) => {
+      const allowed = ['media', 'microphone', 'camera', 'fullscreen', 'notifications'];
+      callback(allowed.includes(permission));
+    });
+  } catch(e) {}
+
   console.log('[electron] All device permissions granted');
 }
 
@@ -189,7 +198,11 @@ function findPython() {
   if (platform === 'win32') {
     candidates = [
       process.env.PYTHON_PATH,
+      // Embedded Python bundled with app (highest priority after env var)
+      path.join(process.resourcesPath || '', 'python-embed', 'python.exe'),
+      path.join(__dirname, 'python-embed', 'python.exe'),
       path.join(process.resourcesPath || '', 'python', 'python.exe'),
+      // System Python as fallback
       'python',
       'python3',
       'C:\\Python312\\python.exe',
@@ -308,18 +321,60 @@ function _spawnAgent() {
 function _spawnBackend() {
   const env = { ...process.env };
   env.PORT = String(BACKEND_PORT);
+  
+  // ── Load .env from project root ──
+  const projectRoot = path.join(__dirname, '..', '..', '..');
+  const envFiles = [
+    path.join(projectRoot, '.env'),
+    path.join(process.resourcesPath || '', 'potato-backend', '.env'),
+  ];
+  for (const envPath of envFiles) {
+    try {
+      if (fs.existsSync(envPath)) {
+        const envContent = fs.readFileSync(envPath, 'utf-8');
+        for (const line of envContent.split('\n')) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) continue;
+          const eqIdx = trimmed.indexOf('=');
+          if (eqIdx > 0) {
+            const key = trimmed.slice(0, eqIdx).trim();
+            const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
+            if (!env[key]) env[key] = val;
+          }
+        }
+        console.log(`[electron] Loaded .env from ${envPath}`);
+      }
+    } catch(e) { console.warn('[electron] Failed to load .env:', e.message); }
+  }
+  
   const isWin = process.platform === 'win32';
 
-  // ── Priority 1: Built-in PyInstaller exe (no Python needed on user machine) ──
-  const bundledExe = isWin
-    ? path.join(process.resourcesPath || '', 'potato-backend', 'potato-backend.exe')
-    : path.join(process.resourcesPath || '', 'potato-backend', 'potato-backend');
-
-  if (fs.existsSync(bundledExe)) {
-    console.log(`[electron] Using bundled backend exe: ${bundledExe}`);
-    const spawnOpts = { cwd: path.dirname(bundledExe), env, stdio: ['ignore', 'pipe', 'pipe'] };
-    if (isWin) spawnOpts.shell = true;
-    backendProc = spawn(bundledExe, [], spawnOpts);
+  // ── Priority 1: Embedded Python + source (full features, 80 routes) ──
+  const python = findPython();
+  // Source code locations: dev mode vs packaged mode
+  const backendDirCandidates = [
+    path.join(projectRoot, 'desktop_pet', 'backend'),           // dev mode
+    path.join(process.resourcesPath || '', 'potato-backend'),    // packaged mode (extraResources)
+    path.join(__dirname, '..', 'backend'),                        // electron-relative
+  ];
+  let backendDir = null;
+  let mainPy = null;
+  for (const dir of backendDirCandidates) {
+    const mp = path.join(dir, 'main.py');
+    if (fs.existsSync(mp)) {
+      backendDir = dir;
+      mainPy = mp;
+      break;
+    }
+  }
+  
+  if (python && mainPy) {
+    console.log(`[electron] Using Python source: ${python} ${mainPy}`);
+    // PYTHONPATH needs potato-backend dir (for potato/ package) and backend dir itself
+    const pythonPaths = [backendDir, path.dirname(backendDir)].filter((p, i, arr) => arr.indexOf(p) === i);
+    env.PYTHONPATH = pythonPaths.join(';') + (env.PYTHONPATH ? ';' + env.PYTHONPATH : '');
+    const spawnOpts = { cwd: backendDir, env, stdio: ['ignore', 'pipe', 'pipe'] };
+    backendProc = spawn(python, [mainPy], spawnOpts);
 
     backendProc.stdout.on('data', (data) => {
       console.log(`[backend] ${data.toString().trim()}`);
@@ -339,79 +394,35 @@ function _spawnBackend() {
     return;
   }
 
-  // ── Priority 2: System Python (dev mode / fallback) ──
-  console.log('[electron] Bundled exe not found, falling back to system Python');
-  const python = findPython();
-  const backendDir = path.join(process.resourcesPath || path.join(__dirname, '..'), 'backend');
-  const mainPy = path.join(backendDir, 'main.py');
+  // ── Priority 2: Bundled PyInstaller exe (fallback, incomplete features) ──
+  const bundledExe = isWin
+    ? path.join(process.resourcesPath || '', 'potato-backend', 'potato-backend.exe')
+    : path.join(process.resourcesPath || '', 'potato-backend', 'potato-backend');
 
-  console.log(`[electron] _spawnBackend: python=${python}, mainPy=${mainPy}, exists=${fs.existsSync(mainPy)}`);
+  if (fs.existsSync(bundledExe)) {
+    console.log(`[electron] Fallback: Using bundled backend exe: ${bundledExe}`);
+    const spawnOpts = { cwd: path.dirname(bundledExe), env, stdio: ['ignore', 'pipe', 'pipe'] };
+    backendProc = spawn(bundledExe, [], spawnOpts);
 
-  if (!fs.existsSync(mainPy)) {
-    console.error(`Backend not found at ${mainPy}, trying project root backend`);
-    const altMainPy = path.join(__dirname, '..', 'backend', 'main.py');
-    console.log(`[electron] altMainPy=${altMainPy}, exists=${fs.existsSync(altMainPy)}`);
-    if (!fs.existsSync(altMainPy)) {
-      console.error(`Backend not found at ${altMainPy} either, relying on existing backend`);
-      return;
-    }
-  }
-
-  const resRoot = process.resourcesPath || path.join(__dirname, '..');
-  const pthEntries = [
-    resRoot,
-    path.join(resRoot, 'potato'),
-    path.join(resRoot, 'backend'),
-  ];
-
-  const pthContent = pthEntries.join('\n');
-  const pthFile = path.join(resRoot, 'potato', '_desktop_pet_paths.pth');
-  try {
-    fs.writeFileSync(pthFile, pthContent, 'utf8');
-  } catch (e) {
-    console.error('[electron] Failed to write potato .pth:', e.message);
-  }
-
-  const siteDir = isWin
-    ? path.join(path.dirname(python), 'Lib', 'site-packages')
-    : path.join(path.dirname(python), '..', 'lib', `python3.${process.arch === 'arm64' ? '12' : '12'}`, 'site-packages');
-  try { fs.mkdirSync(siteDir, { recursive: true }); } catch {}
-  try {
-    fs.writeFileSync(path.join(siteDir, 'desktop_pet_paths.pth'), pthContent, 'utf8');
-  } catch (e) {
-    console.error('[electron] Failed to write site-packages .pth:', e.message);
-  }
-
-  env.PYTHONPATH = [
-    path.join(__dirname, '..', 'backend'),
-  ].join(path.delimiter) + (env.PYTHONPATH ? path.delimiter + env.PYTHONPATH : '');
-
-  const mainPyPath = fs.existsSync(path.join(__dirname, '..', 'backend', 'main.py'))
-    ? path.join(__dirname, '..', 'backend', 'main.py')
-    : mainPy;
-  const cwd = path.dirname(mainPyPath);
-
-  const spawnArgs = isWin ? [`"${mainPyPath}"`] : [mainPyPath];
-  const spawnOpts = { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] };
-  if (isWin) spawnOpts.shell = true;
-
-  backendProc = spawn(python, spawnArgs, spawnOpts);
-
-  backendProc.stdout.on('data', (data) => {
-    console.log(`[backend] ${data.toString().trim()}`);
-  });
-  backendProc.stderr.on('data', (data) => {
-    console.error(`[backend] ${data.toString().trim()}`);
-  });
-  backendProc.on('close', (code) => {
-    if (!isQuitting) {
-      console.log(`Backend exited with code ${code}, restarting in 3s...`);
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('system-event', { type: 'backend_crash', code });
+    backendProc.stdout.on('data', (data) => {
+      console.log(`[backend] ${data.toString().trim()}`);
+    });
+    backendProc.stderr.on('data', (data) => {
+      console.error(`[backend] ${data.toString().trim()}`);
+    });
+    backendProc.on('close', (code) => {
+      if (!isQuitting) {
+        console.log(`Backend (exe) exited with code ${code}, restarting in 3s...`);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('system-event', { type: 'backend_crash', code });
+        }
+        setTimeout(() => _spawnBackend(), 3000);
       }
-      setTimeout(() => _spawnBackend(), 3000);
-    }
-  });
+    });
+    return;
+  }
+
+  console.error('[electron] No backend available (no Python, no bundled exe)');
 }
 
 // ── Save/Restore window bounds ──
@@ -456,9 +467,8 @@ function createWindow() {
       contextIsolation: true,
       sandbox: false,
       autoplayPolicy: 'no-user-gesture-required',
-      // No longer need webSecurity:false — app:// protocol avoids file:// fetch issues.
-      // Keeping webSecurity:true even in packaged mode is safer.
-      webSecurity: true,
+      // webSecurity:false needed for app:// to fetch http://127.0.0.1 backend
+      webSecurity: false,
     },
   });
 
@@ -513,7 +523,7 @@ function createWindow() {
   // Load frontend
   const frontendUrl = `http://127.0.0.1:${FRONTEND_PORT}`;
   const distPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'frontend', 'dist', 'index.html')
+    ? path.join(process.resourcesPath, 'frontend', 'index.html')
     : path.join(__dirname, '..', 'frontend', 'dist', 'index.html');
 
   if (app.isPackaged) {
@@ -1758,7 +1768,7 @@ protocol.registerSchemesAsPrivileged([
 // us serve static files through a protocol that supports fetch().
 function registerAppProtocol() {
   const distDir = app.isPackaged
-    ? path.join(process.resourcesPath, 'frontend', 'dist')
+    ? path.join(process.resourcesPath, 'frontend')
     : path.join(__dirname, '..', 'frontend', 'dist');
 
   protocol.registerFileProtocol('app', (request, callback) => {
