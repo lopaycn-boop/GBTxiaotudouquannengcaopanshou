@@ -1,15 +1,15 @@
 """Version information for 小土豆 AI操盘."""
 
-__version__ = "1.20.2"
+__version__ = "1.21.1"
 __author__ = "自由的风"
-BUILD = "20250530"
+BUILD = "20260612"
 
 FEATURES = [
     "live2d", "ai_chat", "5layer_llm", "auto_trading", "7phase_scheduler",
     "risk_control", "professional_review", "bytebot_agent",
     "eastmoney_ai", "iwencai", "plan_execute", "6agent_analysis",
     "sentiment_analysis", "stock_changes", "hot_tables", "chip_distribution",
-    "kline_data", "realtime_quotes", "multi_source_fallback",
+    "kline_data", "realtime_quotes", "infoway_realtime_quotes", "multi_source_fallback",
     "billing", "vault_encryption", "demo_mode",
     "ws_realtime", "tts_stt", "memory_30d", "trendradar",
     "desktop_notifications", "wake_word", "auto_update",

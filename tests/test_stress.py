@@ -162,7 +162,7 @@ class TestVerifierStress:
         async def screenshot_fn():
             nonlocal call_idx
             # 每步产生不同的截图
-            arr = np.full((50, 50, 3), 100 + call_idx * 5, dtype=np.uint8)
+            arr = np.full((50, 50, 3), (100 + call_idx * 5) % 256, dtype=np.uint8)
             call_idx += 1
             buf = BytesIO()
             Image.fromarray(arr).save(buf, format="PNG")

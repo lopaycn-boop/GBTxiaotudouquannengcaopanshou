@@ -23,19 +23,29 @@ let backendReady = false;
 let mainWindow = null;
 
 const BACKEND_PORT = 8003;
-const LOG_FILE = path.join(app.getPath('userData'), 'glass-app.log');
 const APP_NAME = 'GBTxiaotudou 全能操盘手';
+app.setName(APP_NAME);
+
+const LOG_DIR = app.getPath('userData');
+try { fs.mkdirSync(LOG_DIR, { recursive: true }); } catch (_) {}
+const LOG_FILE = path.join(LOG_DIR, 'glass-app.log');
+
+function writeLog(level, msg, writer) {
+  const line = `[${new Date().toISOString()}] ${level} ${msg}`;
+  writer(line);
+  try { fs.appendFileSync(LOG_FILE, line + '\n', 'utf-8'); } catch (e) { console.error(`[log-write-failed] ${e.message}`); }
+}
 
 const logger = {
-  info: (msg) => { const l = `[${new Date().toISOString()}] ℹ️  ${msg}`; console.log(l); fs.appendFileSync(LOG_FILE, l + '\n', 'utf-8'); },
-  success: (msg) => { const l = `[${new Date().toISOString()}] ✅ ${msg}`; console.log(l); fs.appendFileSync(LOG_FILE, l + '\n', 'utf-8'); },
-  warn: (msg) => { const l = `[${new Date().toISOString()}] ⚠️  ${msg}`; console.warn(l); fs.appendFileSync(LOG_FILE, l + '\n', 'utf-8'); },
-  error: (msg) => { const l = `[${new Date().toISOString()}] ❌ ${msg}`; console.error(l); fs.appendFileSync(LOG_FILE, l + '\n', 'utf-8'); },
+  info: (msg) => writeLog('ℹ️ ', msg, console.log),
+  success: (msg) => writeLog('✅', msg, console.log),
+  warn: (msg) => writeLog('⚠️ ', msg, console.warn),
+  error: (msg) => writeLog('❌', msg, console.error),
 };
 
 logger.info('═════════════════════════════════════════');
 logger.info(`${APP_NAME} 玻璃悬浮APP启动`);
-logger.info(`版本: 2.0.0 | 平台: ${process.platform} | Electron: ${process.versions.electron}`);
+logger.info(`版本: ${app.getVersion()} | 平台: ${process.platform} | Electron: ${process.versions.electron}`);
 
 function getResourcePath() {
   return app.isPackaged ? path.join(process.resourcesPath) : path.join(__dirname, '..', '..');
@@ -77,6 +87,29 @@ function findPotatoDir() {
     if (fs.existsSync(path.join(dir, '__init__.py'))) { logger.success(`找到potato包: ${dir}`); return dir; }
   }
   return null;
+}
+
+function findFrontendDir() {
+  const possible = app.isPackaged
+    ? [
+        path.join(process.resourcesPath, 'frontend-dist'),
+        path.join(app.getAppPath(), 'dist'),
+      ]
+    : [
+        path.join(__dirname, 'dist'),
+        path.join(__dirname, 'dist2'),
+        path.join(__dirname, 'glass_app'),
+      ];
+
+  for (const dir of possible) {
+    if (fs.existsSync(path.join(dir, 'index.html'))) {
+      logger.success(`找到前端页面: ${dir}`);
+      return dir;
+    }
+  }
+
+  logger.error('未找到前端页面目录！');
+  return possible[0];
 }
 
 function checkBackendHealth(timeout = 10000) {
@@ -138,18 +171,16 @@ function killBackend() {
 }
 
 function registerAppProtocol() {
-  const glassDir = app.isPackaged
-    ? path.join(process.resourcesPath, 'glass-app')
-    : path.join(__dirname, 'glass_app');
+  const frontendDir = findFrontendDir();
 
   protocol.handle('app', (request) => {
     const urlPath = decodeURI(new URL(request.url).pathname);
     const relativePath = urlPath.replace(/^\//, '') || 'index.html';
-    const filePath = path.join(glassDir, relativePath);
+    const filePath = path.join(frontendDir, relativePath);
     const fileUrl = 'file:///' + filePath.replace(/\\/g, '/');
     return net.fetch(fileUrl);
   });
-  logger.info(`Registered app:// protocol → ${glassDir}`);
+  logger.info(`Registered app:// protocol → ${frontendDir}`);
 }
 
 function createWindow() {
@@ -183,14 +214,7 @@ function createWindow() {
   mainWindow.webContents.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(true));
   mainWindow.webContents.session.setPermissionCheckHandler(() => true);
 
-  const isDev = !app.isPackaged;
-  if (isDev) {
-    // 开发模式: 加载glass_app/index.html
-    const glassPath = path.join(__dirname, 'glass_app', 'index.html');
-    mainWindow.loadURL('file:///' + glassPath.replace(/\\/g, '/'));
-  } else {
-    mainWindow.loadURL('app://localhost/index.html');
-  }
+  mainWindow.loadURL('app://localhost/index.html');
 
   // 渲染器日志
   mainWindow.webContents.on('console-message', (_e, level, message, line, sourceId) => {
@@ -222,6 +246,8 @@ ipcMain.on('window-always-on-top', (_e, flag) => { if (mainWindow) mainWindow.se
 ipcMain.on('eval-js', (_e, code) => { if (mainWindow) mainWindow.webContents.executeJavaScript(code).catch(()=>{}); });
 
 app.whenReady().then(() => {
+  registerAppProtocol();
+
   // 检查后端是否已经在运行
   checkBackendHealth(2000).then((healthy) => {
     if (!healthy) {

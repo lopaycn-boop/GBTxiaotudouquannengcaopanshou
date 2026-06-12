@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -48,6 +49,10 @@ EM_HOT_TABLES_API = "https://push2ex.eastmoney.com/get/qt=hot_tables"
 EM_CHIP_API = "https://push2his.eastmoney.com/api/qt/chipdistribution/get"
 
 _TIMEOUT = httpx.Timeout(connect=8.0, read=15.0, write=10.0, pool=30.0)
+
+
+def _fetched_at() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 # ── Financial Sentiment Analysis ──────────────────────────────────────────
@@ -253,6 +258,7 @@ def get_stock_changes() -> list[dict]:
 def _em_stock_changes() -> list[dict]:
     """EastMoney quote list API for top movers."""
     try:
+        fetched_at = _fetched_at()
         client = httpx.Client(timeout=_TIMEOUT, follow_redirects=True)
         params = {
             "pn": "1",
@@ -281,6 +287,10 @@ def _em_stock_changes() -> list[dict]:
                 "amplitude": float(item.get("f7", 0) or 0),
                 "high": float(item.get("f15", 0) or 0),
                 "low": float(item.get("f16", 0) or 0),
+                "source": "eastmoney_quote_list",
+                "source_name": "东方财富实时行情",
+                "source_url": EM_QUOTE_API,
+                "fetched_at": fetched_at,
             })
         return items
     except Exception as exc:
@@ -295,6 +305,7 @@ def _sina_top_changes() -> list[dict]:
              "sz000333", "sh600887", "sz002415", "sh601166", "sz300059",
              "sh600030", "sz000002", "sh601688", "sz002304", "sh600309"]
     try:
+        fetched_at = _fetched_at()
         headers = {
             "Referer": "https://finance.sina.com.cn",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -323,6 +334,10 @@ def _sina_top_changes() -> list[dict]:
                 "volume": int(fields[8]) if fields[8] else 0,
                 "high": float(fields[4]) if fields[4] else 0,
                 "low": float(fields[5]) if fields[5] else 0,
+                "source": "sina_quote",
+                "source_name": "新浪财经实时行情",
+                "source_url": "https://hq.sinajs.cn/",
+                "fetched_at": fetched_at,
             })
         items.sort(key=lambda x: abs(x["change_pct"]), reverse=True)
         return items[:20]
@@ -547,7 +562,15 @@ def _tencent_chip_estimate(stock_code: str) -> dict[str, Any]:
 
 
 def get_realtime_quote(stock_code: str) -> dict[str, Any]:
-    """Get real-time stock quote. Tries Sina first, falls back to EastMoney."""
+    """Get real-time stock quote. Tries Infoway, Sina, then EastMoney."""
+    try:
+        from potato.infoway import get_realtime_quote as _infoway_quote
+
+        result = _infoway_quote(stock_code)
+        if result:
+            return result
+    except Exception as exc:
+        logger.debug("Infoway quote fallback for %s: %s", stock_code, _safe_err(exc))
     result = _sina_quote(stock_code)
     if result:
         return result
@@ -559,6 +582,7 @@ def _sina_quote(stock_code: str) -> dict[str, Any]:
     prefix = "sh" if stock_code.startswith(("6", "9")) else "sz"
     sina_code = f"{prefix}{stock_code}"
     try:
+        fetched_at = _fetched_at()
         headers = {
             "Referer": "https://finance.sina.com.cn",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -584,6 +608,10 @@ def _sina_quote(stock_code: str) -> dict[str, Any]:
             "volume": int(fields[8]) if fields[8] else 0,
             "amount": float(fields[9]) if fields[9] else 0,
             "change_pct": round((float(fields[3]) - float(fields[2])) / float(fields[2]) * 100, 2) if fields[2] and float(fields[2]) > 0 else 0,
+            "source": "sina_quote",
+            "source_name": "新浪财经实时行情",
+            "source_url": f"https://finance.sina.com.cn/realstock/company/{sina_code}/nc.shtml",
+            "fetched_at": fetched_at,
         }
     except Exception as exc:
         logger.debug("Sina quote fallback for %s: %s", stock_code, _safe_err(exc))
@@ -594,6 +622,7 @@ def _em_quote(stock_code: str) -> dict[str, Any]:
     """Fetch quote from EastMoney push2 API as fallback."""
     secid = f"1.{stock_code}" if stock_code.startswith(("6", "9")) else f"0.{stock_code}"
     try:
+        fetched_at = _fetched_at()
         client = httpx.Client(timeout=_TIMEOUT)
         params = {
             "secid": secid,
@@ -620,6 +649,10 @@ def _em_quote(stock_code: str) -> dict[str, Any]:
             "volume": int(d.get("f47", 0) or 0),
             "amount": float(d.get("f48", 0) or 0),
             "change_pct": change_pct,
+            "source": "eastmoney_quote",
+            "source_name": "东方财富实时行情",
+            "source_url": f"https://quote.eastmoney.com/{stock_code}.html",
+            "fetched_at": fetched_at,
         }
     except Exception as exc:
         logger.warning("EM quote fallback error for %s: %s", stock_code, _safe_err(exc))
