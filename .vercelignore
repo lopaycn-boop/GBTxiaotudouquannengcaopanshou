@@ -1,0 +1,66 @@
+# Vercel deployment ignore file
+# Exclude unnecessary files and directories from deployment
+
+# Python and virtual environment files
+**/.venv/**
+**/__pycache__/**
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.pytest_cache/**
+**/.ruff_cache/**
+
+# Node modules (will be installed by Vercel)
+**/node_modules/**
+
+# Build artifacts and releases
+**/release*/
+**/build/**
+**/dist2/**
+
+# Electron specific files
+**/electron-main.cjs
+**/preload.cjs
+**/Start.vbs
+
+# Development and test files
+**/.git/**
+**/.github/**
+**/.hermes/**
+**/tests/**
+**/stress_test*.py
+**/obfuscate.js
+
+# Data and cache files
+**/data/**
+**/*.db
+**/*.log
+**/*.tmp
+
+# Documentation
+**/doc/**
+**/*.md
+!README.md
+
+# Scripts and utilities
+**/scripts/**
+**/setup.sh
+**/start.bat
+
+# Python embedded environment
+**/python-embed/**
+
+# OS generated files
+**/.DS_Store
+**/Thumbs.db
+
+# IDE files
+**/.vscode/**
+**/.idea/**
+**/*.swp
+**/*.swo
+
+# Temporary files
+**/.temp/**
+**/tmp/**
+**/temp/**
