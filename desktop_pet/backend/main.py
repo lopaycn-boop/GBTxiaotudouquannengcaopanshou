@@ -704,6 +704,19 @@ def health():
     })
 
 
+@app.get("/")
+def root():
+    from potato.version import __version__, BUILD
+    return JSONResponse({
+        "name": "GBTxiaotudou 全能操盘手",
+        "status": "online",
+        "version": __version__,
+        "build": BUILD,
+        "health": "/health",
+        "version_endpoint": "/version",
+    })
+
+
 @app.get("/version")
 def version():
     from potato.version import __version__, __author__, BUILD, FEATURES

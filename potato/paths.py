@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 logger = logging.getLogger("potato.paths")
@@ -8,9 +9,19 @@ logger = logging.getLogger("potato.paths")
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _ENV_DATA_DIR = os.environ.get("POTATO_DATA_DIR", "").strip()
 _DEFAULT_DATA_DIR = Path(_ENV_DATA_DIR) if _ENV_DATA_DIR else _PROJECT_ROOT / "data"
+_SERVERLESS_TMP = os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME")
+
+
+def _tmp_data_dir(*parts: str) -> Path:
+    return Path(os.environ.get("TMPDIR", tempfile.gettempdir())) / "potato-desktop-pet" / Path(*parts)
 
 
 def _resolve_data_dir() -> Path:
+    if _SERVERLESS_TMP:
+        fallback = _tmp_data_dir("data")
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback
+
     try:
         _DEFAULT_DATA_DIR.mkdir(parents=True, exist_ok=True)
         test_file = _DEFAULT_DATA_DIR / ".write_test"
@@ -37,6 +48,11 @@ def get_secure_config_dir() -> Path:
     """Return platform-specific secure directory for sensitive config (salt, etc).
     Separate from DATA_DIR which may contain database files.
     """
+    if _SERVERLESS_TMP:
+        d = _tmp_data_dir("config")
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
     if sys.platform == "darwin":
         d = Path.home() / "Library" / "Application Support" / "potato-desktop-pet"
     elif sys.platform == "linux":
