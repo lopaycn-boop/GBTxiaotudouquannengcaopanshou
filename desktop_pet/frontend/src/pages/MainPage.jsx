@@ -209,7 +209,7 @@ export default function MainPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [showTradeHistory, setShowTradeHistory] = useState(false);
   const [dashboardTab, setDashboardTab] = useState('chart');
-  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem('potato_onboarding_done'));
   const [alwaysOnTop, setAlwaysOnTop] = useState(true);
   const [systemStatus, setSystemStatus] = useState(null);
   const [splashStage, setSplashStage] = useState('init');

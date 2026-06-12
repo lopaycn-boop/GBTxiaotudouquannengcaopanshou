@@ -24,6 +24,7 @@ import re
 import signal
 import sys
 import time
+import threading
 import datetime
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -36,9 +37,11 @@ if _PACKAGED_ROOT:
         if _sp not in sys.path:
             sys.path.insert(0, _sp)
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
+from pydantic import BaseModel
+from typing import Any
 
 BACKEND_DIR = Path(__file__).resolve().parent
 ROOT = BACKEND_DIR.parents[1]
@@ -59,6 +62,7 @@ from potato.billing import BillingManager
 from potato.eastmoney import (
     EastMoneyClient, analyze_sentiment, get_stock_changes,
     get_hot_tables, get_chip_distribution, get_realtime_quote,
+    get_kline_data,
 )
 from potato.iwencai import IwencaiClient, format_iwencai_to_text
 
@@ -172,6 +176,18 @@ async def lifespan(app: FastAPI):
     _ensure_ws_token()
     db_result = await asyncio.to_thread(init_db)
     logger.info("Database init result: %s", db_result)
+
+    # ── 加载A股专业知识到永久记忆（首次运行时灌入，之后保存在本地数据库） ──
+    try:
+        from potato.knowledge import load_knowledge_to_memory
+        kb_result = await asyncio.to_thread(load_knowledge_to_memory)
+        if kb_result.get("status") == "loaded":
+            logger.info("A股专业知识已加载: %d facts + %d episodes", 
+                       kb_result.get("facts_loaded", 0), kb_result.get("episodes_loaded", 0))
+        else:
+            logger.info("A股专业知识已存在于本地记忆中")
+    except Exception as e:
+        logger.warning("A股专业知识加载失败(非致命): %s", e)
 
     agent_port = int(os.getenv("BYTEBOT_AGENT_PORT", "9991"))
     _agent_process = None
@@ -3902,6 +3918,20 @@ async def ocr_endpoint(request: Request):
 @app.get("/api/stock/{code}")
 async def stock_info(code: str):
     """获取股票实时信息 — akshare→腾讯→新浪 三级fallback"""
+    # 子路由转发：hot/changes/hot_tables/dragon_tiger/sector_flow等
+    if code == "changes":
+        return JSONResponse(get_stock_changes())
+    if code == "hot_tables":
+        return JSONResponse(get_hot_tables(market=1))
+    if code == "hot":
+        return await stock_hot()
+    if code == "dragon_tiger":
+        return await stock_dragon_tiger()
+    if code == "sector_flow":
+        return await stock_sector_flow()
+    # 跳过非股票代码
+    if not code or not any(c.isdigit() for c in code) or len(code) < 4:
+        return JSONResponse({"ok": False, "error": f"Invalid stock code: {code}"}, status_code=400)
     async def _tencent_quote(code: str):
         import httpx
         prefix = 'sh' if code.startswith(('6','9')) else 'sz' if code.startswith(('0','3')) else 'bj'
@@ -4252,3 +4282,1100 @@ async def trade_risk_check(stock_code: str = "", action: str = "buy", quantity: 
         "risks": risks,
         "pass": risk_level not in ("critical",)
     })
+
+
+# ═══════════════════════════════════════════════════════
+# AI自主云电脑 + 邮箱 API
+# ═══════════════════════════════════════════════════════
+
+from potato.cloud import (
+    cloud_up as _cloud_up,
+    cloud_list as _cloud_list,
+    cloud_current as _cloud_current,
+    cloud_connect as _cloud_connect,
+    cloud_down as _cloud_down,
+    cloud_update as _cloud_update,
+    cloud_remove as _cloud_remove,
+    cloud_refresh as _cloud_refresh,
+    cloud_providers as _cloud_providers,
+    cloud_inbox as _cloud_inbox,
+    cloud_dashboard as _cloud_dashboard,
+    get_or_create_email as _get_email,
+    check_inbox as _check_inbox,
+    read_email as _read_email,
+    set_email_user as _set_email_user,
+    wait_for_code as _wait_for_code,
+    extract_verification_code as _extract_code,
+)
+from dataclasses import asdict as _asdict
+
+
+@app.get("/v1/cloud/dashboard")
+async def api_cloud_dashboard():
+    """云电脑面板总览: 邮箱 + 云电脑 + 提供商"""
+    try:
+        data = await _cloud_dashboard()
+        return JSONResponse(data)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@app.get("/v1/cloud/providers")
+async def api_cloud_providers():
+    """获取可用云电脑提供商列表"""
+    return JSONResponse({"ok": True, "providers": _cloud_providers()})
+
+
+@app.post("/v1/cloud/deploy")
+async def api_cloud_deploy(request: Request):
+    """AI自主部署云电脑 — 选择提供商后一键部署"""
+    try:
+        body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+        provider = body.get("provider")
+        machine = await _cloud_up(provider)
+        return JSONResponse({"ok": True, "machine": _asdict(machine)})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@app.get("/v1/cloud/list")
+async def api_cloud_list():
+    """列出所有云电脑"""
+    machines = await _cloud_list()
+    return JSONResponse({"ok": True, "machines": [_asdict(m) for m in machines]})
+
+
+@app.get("/v1/cloud/current")
+async def api_cloud_current():
+    """获取当前活跃云电脑"""
+    machine = await _cloud_current()
+    if not machine:
+        return JSONResponse({"ok": True, "machine": None})
+    return JSONResponse({"ok": True, "machine": _asdict(machine)})
+
+
+@app.post("/v1/cloud/connect/{machine_id}")
+async def api_cloud_connect(machine_id: str):
+    """连接云电脑"""
+    result = await _cloud_connect(machine_id)
+    if not result:
+        return JSONResponse({"ok": False, "error": "未找到该云电脑"}, status_code=404)
+    return JSONResponse({"ok": True, **result})
+
+
+@app.post("/v1/cloud/stop/{machine_id}")
+async def api_cloud_stop(machine_id: str):
+    """停止云电脑"""
+    await _cloud_down(machine_id)
+    return JSONResponse({"ok": True})
+
+
+@app.patch("/v1/cloud/update/{machine_id}")
+async def api_cloud_update_machine(machine_id: str, request: Request):
+    """更新云电脑信息(IP/密码/状态等)"""
+    updates = await request.json()
+    machine = await _cloud_update(machine_id, updates)
+    if not machine:
+        return JSONResponse({"ok": False, "error": "未找到"}, status_code=404)
+    return JSONResponse({"ok": True, "machine": _asdict(machine)})
+
+
+@app.delete("/v1/cloud/remove/{machine_id}")
+async def api_cloud_remove(machine_id: str):
+    """删除云电脑记录"""
+    ok = await _cloud_remove(machine_id)
+    return JSONResponse({"ok": ok})
+
+
+@app.post("/v1/cloud/refresh/{machine_id}")
+async def api_cloud_refresh(machine_id: str):
+    """刷新云电脑状态"""
+    machine = await _cloud_refresh(machine_id)
+    if not machine:
+        return JSONResponse({"ok": False, "error": "未找到"}, status_code=404)
+    return JSONResponse({"ok": True, "machine": _asdict(machine)})
+
+
+# ── 邮箱API ──
+
+@app.get("/v1/email/status")
+async def api_email_status():
+    """获取AI邮箱状态"""
+    try:
+        email_rec = await _get_email()
+        return JSONResponse({"ok": True, "email": _asdict(email_rec)})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@app.get("/v1/email/inbox")
+async def api_email_inbox():
+    """获取收件箱"""
+    try:
+        data = await _cloud_inbox()
+        return JSONResponse(data)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@app.post("/v1/email/set-user")
+async def api_email_set_user(request: Request):
+    """设置自定义邮箱名"""
+    try:
+        body = await request.json()
+        username = body.get("username", "")
+        if not username:
+            return JSONResponse({"ok": False, "error": "username必填"})
+        rec = await _set_email_user(username)
+        return JSONResponse({"ok": True, "email": _asdict(rec)})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@app.get("/v1/email/read/{mail_id}")
+async def api_email_read(mail_id: str):
+    """读取单封邮件"""
+    msg = await _read_email(mail_id)
+    if not msg:
+        return JSONResponse({"ok": False, "error": "邮件未找到"}, status_code=404)
+    return JSONResponse({"ok": True, "message": _asdict(msg)})
+
+
+@app.post("/v1/email/wait-code")
+async def api_email_wait_code(request: Request):
+    """等待验证码 — 轮询收件箱"""
+    try:
+        body = await request.json()
+        keyword = body.get("keyword", "")
+        max_wait = body.get("max_wait", 120)
+        code = await _wait_for_code(keyword, max_wait_s=max_wait)
+        return JSONResponse({"ok": True, "code": code})
+    except TimeoutError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=408)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+# ── 云桌面API ──
+
+from potato.cloud.desktop import (
+    deploy_desktop as _deploy_desktop,
+    desktop_status as _desktop_status,
+    desktop_stop as _desktop_stop,
+    deploy_cloud_machine as _deploy_cloud_machine,
+)
+
+
+@app.post("/v1/cloud/desktop/deploy")
+async def api_desktop_deploy(request: Request):
+    """一键部署GBTxiaotudou品牌云桌面（Windows用Web桌面，Linux用VNC）"""
+    import sys as _sys
+    try:
+        body = {} if request.headers.get("content-type", "") != "application/json" else await request.json()
+        provider = body.get("provider", "local")
+        # Windows: 直接用Web桌面（纯浏览器，无需VNC/X Server）
+        if _sys.platform == "win32":
+            logger.info("Windows环境，部署Web桌面（无需VNC）")
+            result = await _deploy_cloud_machine(provider)
+            # 强制设置running=true，Web桌面始终可用
+            if isinstance(result, dict):
+                result["ok"] = True
+                if "desktop" in result:
+                    result["desktop"]["running"] = True
+                    result["desktop"]["web_url"] = "/v1/cloud/desktop"
+                    result["desktop"]["pid_xfce"] = 1  # 标记桌面已就绪
+                result["connect_url"] = "/v1/cloud/desktop"
+            return JSONResponse(result)
+        else:
+            result = await _deploy_cloud_machine(provider)
+            return JSONResponse(result)
+    except Exception as e:
+        logger.error("桌面部署失败: %s", e)
+        # Windows fallback: Web桌面始终可用
+        import sys as _sys2
+        if _sys2.platform == "win32":
+            return JSONResponse({"ok": True, "connect_url": "/v1/cloud/desktop",
+                "desktop": {"running": True, "web_url": "/v1/cloud/desktop", "pid_xfce": 1},
+                "brand": {"name": "GBTxiaotudou", "title": "小土豆云电脑"}})
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@app.get("/v1/cloud/desktop/status")
+async def api_desktop_status():
+    """获取云桌面状态"""
+    status = await _desktop_status()
+    return JSONResponse({"ok": True, "desktop": _asdict(status)})
+
+
+@app.post("/v1/cloud/desktop/stop")
+async def api_desktop_stop():
+    """停止云桌面"""
+    await _desktop_stop()
+    return JSONResponse({"ok": True})
+
+
+@app.get("/v1/cloud/desktop/page")
+async def api_desktop_page():
+    """获取品牌桌面页面"""
+    from potato.cloud.desktop import _create_brand_page, load_status, NOVNC_DIR
+    status = load_status()
+    NOVNC_DIR.mkdir(parents=True, exist_ok=True)
+    page = await _create_brand_page(NOVNC_DIR, status)
+    return HTMLResponse(page.read_text("utf-8"))
+
+
+# ── Web桌面API ──
+
+from potato.cloud.web_desktop import generate_desktop_html as _gen_desktop_html
+
+
+@app.get("/v1/cloud/desktop")
+async def api_web_desktop():
+    """GBTxiaotudou品牌Web桌面"""
+    html = _gen_desktop_html(api_base="")
+    return HTMLResponse(html)
+
+
+@app.post("/v1/cloud/desktop/exec")
+async def api_desktop_exec(request: Request):
+    """终端命令执行"""
+    body = await request.json()
+    cmd = body.get("cmd", "").strip()
+    if not cmd:
+        return JSONResponse({"ok": False, "error": "空命令"})
+    blocked = ["rm -rf /", "del /s /q C:", "shutdown", "reboot"]
+    for b in blocked:
+        if b in cmd.lower():
+            return JSONResponse({"ok": False, "error": f"禁止执行: {b}"})
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(Path.home()),
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+        output = stdout.decode("utf-8", errors="replace")
+        if stderr:
+            output += "\n" + stderr.decode("utf-8", errors="replace")
+        return JSONResponse({"ok": True, "output": output or "(无输出)"})
+    except asyncio.TimeoutError:
+        return JSONResponse({"ok": False, "error": "命令超时(10s)"})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@app.get("/v1/cloud/desktop/files")
+async def api_desktop_files(path: str = "/"):
+    """文件管理器"""
+    try:
+        base = Path.home() if path == "/" else Path(path.replace("/", "\\") if sys.platform == "win32" else path)
+        if not base.exists():
+            return JSONResponse({"ok": False, "error": "路径不存在"})
+        items = []
+        for p in sorted(base.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+            if p.name.startswith(".") and p.is_file():
+                continue
+            try:
+                size = p.stat().st_size
+                size_str = "-" if p.is_dir() else (f"{size}B" if size < 1024 else f"{size/1024:.1f}KB" if size < 1048576 else f"{size/1048576:.1f}MB")
+                items.append({"name": p.name, "path": str(p).replace("\\", "/"), "is_dir": p.is_dir(), "size": size_str})
+            except PermissionError:
+                continue
+        return JSONResponse({"ok": True, "items": items[:200]})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@app.get("/v1/cloud/desktop/sysinfo")
+async def api_desktop_sysinfo():
+    """系统信息"""
+    import platform
+    info: dict = {}
+    try:
+        import psutil
+        info["os"] = {"name": platform.system(), "version": platform.release()}
+        mem = psutil.virtual_memory()
+        info["memory"] = {"total": f"{mem.total/1073741824:.1f}GB", "used": f"{mem.used/1073741824:.1f}GB", "percent": mem.percent}
+        info["cpu"] = {"count": psutil.cpu_count(), "percent": psutil.cpu_percent(interval=0.5)}
+        disk = psutil.disk_usage("C:\\")
+        info["disk"] = {"total": f"{disk.total/1073741824:.0f}GB", "used": f"{disk.used/1073741824:.0f}GB", "percent": disk.percent}
+        try:
+            from potato.cloud import get_or_create_email
+            email_rec = await get_or_create_email()
+            info["email"] = {"address": email_rec.address, "provider": email_rec.provider}
+        except Exception:
+            info["email"] = {"address": "未配置", "provider": ""}
+    except ImportError:
+        info["os"] = {"name": platform.system(), "version": platform.release()}
+        info["memory"] = {"total": "?", "used": "?", "percent": 0}
+        info["cpu"] = {"count": "?", "percent": 0}
+        info["disk"] = {"total": "?", "used": "?", "percent": 0}
+    return JSONResponse(info)
+
+
+# ═══════════════════════════════════════════════════════
+# 本地REST API (原app.py合并)
+# ═══════════════════════════════════════════════════════
+
+from potato.config import load_settings
+from potato.cycle import run_cycle
+from potato.db import Database
+
+# ── 全局状态（原app.py） ──
+_app_last_cycle: dict[str, Any] = {"status": "idle"}
+_app_last_intel: dict[str, Any] = {"status": "idle"}
+_app_lock = threading.Lock()
+_app_db_lock = threading.Lock()
+_app_db: Database | None = None
+
+
+def _app_get_db() -> Database:
+    """获取数据库实例（懒加载，带锁）"""
+    global _app_db
+    if _app_db is None:
+        with _app_db_lock:
+            if _app_db is None:
+                _app_db = Database(load_settings())
+    return _app_db
+
+
+def _app_run_cycle_job() -> None:
+    """执行交易循环"""
+    global _app_last_cycle
+    with _app_lock:
+        try:
+            result = run_cycle()
+            _app_last_cycle = {**result, "finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+            logger.info("Cycle %s status=%s", result.get("run_id"), result.get("status"))
+        except Exception as exc:
+            _app_last_cycle = {
+                "status": "failed",
+                "error": str(exc),
+                "finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+            logger.exception("Cycle failed")
+
+
+def _app_run_intel_job() -> None:
+    """执行情报扫描"""
+    global _app_last_intel
+    if os.getenv("POTATO_INTEL_ENABLED", "true").lower() not in {"1", "true", "yes"}:
+        return
+    with _app_lock:
+        try:
+            from potato.intel import run_daily_intel
+            push = os.getenv("POTATO_INTEL_PUSH", "true").lower() in {"1", "true", "yes"}
+            result = run_daily_intel(push=push)
+            _app_last_intel = {**result, "finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+            logger.info("Intel job %s: %s", result.get("run_id"), result.get("status"))
+        except Exception as exc:
+            _app_last_intel = {
+                "status": "failed",
+                "error": str(exc),
+                "finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+            logger.exception("Intel job failed")
+
+
+# ── Pydantic 模型定义 ──
+
+class CycleResponse(BaseModel):
+    ok: bool
+    result: dict[str, Any]
+
+
+class BotSetupRequest(BaseModel):
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
+    dingtalk_webhook_url: str | None = None
+    dingtalk_secret: str | None = None
+    feishu_webhook_url: str | None = None
+    feishu_app_id: str | None = None
+    feishu_app_secret: str | None = None
+    feishu_receive_id: str | None = None
+
+
+class ActivateBotsRequest(BaseModel):
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
+    feishu_app_id: str | None = None
+    feishu_app_secret: str | None = None
+    feishu_receive_id: str | None = None
+    feishu_webhook_url: str | None = None
+    dingtalk_webhook_url: str | None = None
+    send_test: bool = True
+
+
+class SecretUpsertRequest(BaseModel):
+    key: str
+    value: str
+
+
+class StockSentimentRequest(BaseModel):
+    text: str = ""
+
+
+class IwencaiQueryRequest(BaseModel):
+    question: str = ""
+    page: int = 1
+    limit: int = 10
+
+
+class IwencaiSearchRequest(BaseModel):
+    keyword: str = ""
+    channel: str = "news"
+    limit: int = 10
+
+
+class IwencaiSelectRequest(BaseModel):
+    query: str = ""
+    limit: int = 20
+
+
+class IwencaiFormatRequest(BaseModel):
+    question: str = ""
+
+
+class CredentialGrantRequest(BaseModel):
+    platform_id: str
+    credentials: dict[str, str]
+
+
+class CredentialRevokeRequest(BaseModel):
+    platform_id: str
+
+
+class TelegramConnectRequest(BaseModel):
+    bot_token: str
+    chat_id: str | None = None
+    send_test: bool = True
+
+
+# ── 股票代码校验 ──
+
+_STOCK_CODE_RE = re.compile(r"^[0-9]{6}$")
+
+
+def _validate_stock_code(code: str) -> str:
+    if not _STOCK_CODE_RE.match(code):
+        raise HTTPException(status_code=400, detail="Invalid stock code: must be 6 digits")
+    return code
+
+
+# ── 1. /api/status — 系统状态 ──
+
+@app.get("/api/status")
+def api_app_status() -> JSONResponse:
+    """系统状态（交易循环、情报、风控、持仓）"""
+    settings = load_settings()
+    db = Database(settings)
+    with _app_lock:
+        last_cycle = dict(_app_last_cycle)
+        last_intel = dict(_app_last_intel)
+    return JSONResponse({
+        "last_cycle": last_cycle,
+        "last_intel": last_intel,
+        "risk_state": db.get_risk_state(),
+        "open_positions": db.list_open_positions(),
+        "llm_model": settings.llm_model,
+    })
+
+
+# ── 2. /api/cycle/run — 触发交易循环 ──
+
+@app.post("/api/cycle/run", response_model=CycleResponse)
+def api_trigger_cycle() -> CycleResponse:
+    """手动触发一次交易循环"""
+    _app_run_cycle_job()
+    with _app_lock:
+        ok = _app_last_cycle.get("status") == "completed"
+        result = dict(_app_last_cycle)
+    return CycleResponse(ok=ok, result=result)
+
+
+# ── 3. /api/intel/run — 触发情报扫描 ──
+
+@app.post("/api/intel/run")
+def api_trigger_intel() -> JSONResponse:
+    """手动触发一次情报扫描"""
+    _app_run_intel_job()
+    with _app_lock:
+        return JSONResponse({"ok": _app_last_intel.get("status") == "completed", "result": dict(_app_last_intel)})
+
+
+# ── 4. /api/intel/last — 上次情报 ──
+
+@app.get("/api/intel/last")
+def api_last_intel() -> JSONResponse:
+    """获取上次情报扫描结果"""
+    with _app_lock:
+        return JSONResponse(dict(_app_last_intel))
+
+
+# ── 5. /api/bots/status, setup, activate — 机器人管理 ──
+
+@app.get("/api/bots/status")
+def api_bots_status() -> JSONResponse:
+    """获取各通知渠道状态"""
+    from potato.notifications import BotNotifier
+    return JSONResponse({"ok": True, "bots": BotNotifier().channel_status()})
+
+
+@app.post("/api/bots/setup")
+def api_bots_setup(body: BotSetupRequest) -> JSONResponse:
+    """配置机器人密钥"""
+    from potato.notifications import upsert_bot_secret
+
+    mapping = {
+        "TELEGRAM_BOT_TOKEN": body.telegram_bot_token,
+        "TELEGRAM_CHAT_ID": body.telegram_chat_id,
+        "DINGTALK_WEBHOOK_URL": body.dingtalk_webhook_url,
+        "DINGTALK_SECRET": body.dingtalk_secret,
+        "FEISHU_WEBHOOK_URL": body.feishu_webhook_url,
+        "FEISHU_APP_ID": body.feishu_app_id,
+        "FEISHU_APP_SECRET": body.feishu_app_secret,
+        "FEISHU_RECEIVE_ID": body.feishu_receive_id,
+    }
+    saved = []
+    for key, value in mapping.items():
+        if value:
+            upsert_bot_secret(key, value.strip())
+            saved.append(key)
+    from potato.notifications import BotNotifier
+    return JSONResponse({"ok": True, "saved_keys": saved, "bots": BotNotifier().channel_status()})
+
+
+@app.post("/api/bots/activate")
+def api_bots_activate(body: ActivateBotsRequest | None = None) -> JSONResponse:
+    """激活并启动通知机器人"""
+    from potato.bot_activation import activate_bots
+    from potato.notifications import upsert_bot_secret
+
+    body = body or ActivateBotsRequest()
+    mapping = {
+        "TELEGRAM_BOT_TOKEN": body.telegram_bot_token,
+        "TELEGRAM_CHAT_ID": body.telegram_chat_id,
+        "FEISHU_APP_ID": body.feishu_app_id,
+        "FEISHU_APP_SECRET": body.feishu_app_secret,
+        "FEISHU_RECEIVE_ID": body.feishu_receive_id,
+        "FEISHU_WEBHOOK_URL": body.feishu_webhook_url,
+        "DINGTALK_WEBHOOK_URL": body.dingtalk_webhook_url,
+    }
+    saved = []
+    for key, value in mapping.items():
+        if value:
+            upsert_bot_secret(key, value.strip())
+            saved.append(key)
+
+    result = activate_bots(send_test=body.send_test)
+    result["saved_keys"] = saved
+    return JSONResponse(result)
+
+
+# ── 6. /api/bots/telegram/connect, discover, diag — Telegram ──
+
+@app.post("/api/bots/telegram/connect")
+def api_telegram_connect(body: TelegramConnectRequest) -> JSONResponse:
+    """连接Telegram机器人"""
+    from potato.notifications import BotNotifier, upsert_bot_secret
+    from potato.telegram_bot import get_telegram_runner, start_telegram_runner
+
+    upsert_bot_secret("TELEGRAM_BOT_TOKEN", body.bot_token.strip())
+    get_telegram_runner().delete_webhook()
+
+    chat_id = (body.chat_id or "").strip()
+    discover = None
+    if not chat_id:
+        discover = BotNotifier().telegram_discover_chat_id()
+        if discover.get("ok"):
+            chat_id = discover["chat_id"]
+            upsert_bot_secret("TELEGRAM_CHAT_ID", chat_id)
+    else:
+        upsert_bot_secret("TELEGRAM_CHAT_ID", chat_id)
+
+    me = BotNotifier().telegram_get_me()
+    runner = start_telegram_runner()
+    test = None
+    if body.send_test and chat_id:
+        test = get_telegram_runner().send_to_chat(
+            chat_id, "🥔 小土豆 Telegram 机器人已连接（密钥来自 CockroachDB）"
+        )
+    elif body.send_test and not chat_id:
+        test = {"ok": False, "error": "请先给机器人发 /start，再调用 connect"}
+
+    return JSONResponse({
+        "ok": bool(me.get("ok")),
+        "bot": me.get("result"),
+        "chat_id": chat_id or None,
+        "discover": discover,
+        "test_send": test,
+        "runner": runner,
+        "bots": BotNotifier().channel_status(),
+    })
+
+
+@app.post("/api/bots/telegram/discover")
+def api_telegram_discover() -> JSONResponse:
+    """自动发现Telegram chat_id"""
+    from potato.notifications import BotNotifier, upsert_bot_secret
+
+    result = BotNotifier().telegram_discover_chat_id()
+    if result.get("ok") and result.get("chat_id"):
+        upsert_bot_secret("TELEGRAM_CHAT_ID", result["chat_id"])
+    return JSONResponse(result)
+
+
+@app.get("/api/bots/telegram/diag")
+def api_telegram_diag() -> JSONResponse:
+    """Telegram 诊断信息"""
+    from potato.notifications import BotNotifier, is_live_secret
+    from potato.telegram_bot import get_telegram_runner, start_telegram_runner, telegram_runner_status
+
+    settings = load_settings()
+    runner = get_telegram_runner()
+    me = BotNotifier().telegram_get_me() if is_live_secret(settings.telegram_bot_token) else {"ok": False}
+
+    wh = {}
+    if is_live_secret(settings.telegram_bot_token):
+        import httpx
+        from potato.notifications import mask_secret
+
+        masked_token = mask_secret(settings.telegram_bot_token)
+        wh = httpx.get(
+            f"https://api.telegram.org/bot{settings.telegram_bot_token}/getWebhookInfo",
+            timeout=20.0,
+        ).json()
+        wh.pop("result", {}).get("url", "")
+
+    updates = {"ok": False}
+    if is_live_secret(settings.telegram_bot_token):
+        import httpx
+
+        runner.delete_webhook()
+        updates = httpx.get(
+            f"https://api.telegram.org/bot{settings.telegram_bot_token}/getUpdates",
+            params={"limit": 5},
+            timeout=20.0,
+        ).json()
+
+    if is_live_secret(settings.telegram_bot_token) and not telegram_runner_status().get("poller_alive"):
+        start_telegram_runner()
+
+    return JSONResponse({
+        "ok": True,
+        "bot_username": (me.get("result") or {}).get("username"),
+        "bot_link": f"https://t.me/{(me.get('result') or {}).get('username')}" if me.get("ok") else None,
+        "token_configured": is_live_secret(settings.telegram_bot_token),
+        "chat_id_configured": is_live_secret(settings.telegram_chat_id),
+        "get_me": me,
+        "webhook_info": wh,
+        "recent_updates_count": len(updates.get("result") or []),
+        "hint": "Telegram 搜索 @" + ((me.get("result") or {}).get("username") or "xiaotudou00bot") + " 发送 /start",
+        "runner": telegram_runner_status(),
+        "bots": BotNotifier().channel_status(),
+    })
+
+
+# ── 7. /api/bots/telegram/webhook — Telegram webhook ──
+
+@app.post("/api/bots/telegram/webhook")
+async def api_telegram_webhook(payload: dict[str, Any], x_telegram_bot_api_secret_token: str | None = Header(default=None)) -> JSONResponse:
+    """Telegram setWebhook 目标 — 校验 secret_token，回复 /start"""
+    from potato.telegram_bot import get_telegram_runner
+
+    expected_secret = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
+    if not expected_secret or x_telegram_bot_api_secret_token != expected_secret:
+        raise HTTPException(status_code=403, detail="invalid webhook secret")
+
+    msg = payload.get("message") or {}
+    chat = msg.get("chat") or {}
+    chat_id = chat.get("id")
+    text = (msg.get("text") or "").strip()
+    if chat_id is not None:
+        get_telegram_runner().handle_incoming(chat_id, text)
+    return JSONResponse({"ok": "true"})
+
+
+# ── 8. /api/notify/test — 通知测试 ──
+
+@app.post("/api/notify/test")
+def api_notify_test() -> JSONResponse:
+    """发送测试通知（Telegram / 钉钉 / 飞书）"""
+    from potato.notifications import BotNotifier
+    return JSONResponse(BotNotifier().notify("🥔 小土豆通知测试 — Telegram / 钉钉 / 飞书（占位渠道会自动跳过）"))
+
+
+# ── 9. /api/secrets/upsert — 密钥更新 ──
+
+@app.post("/api/secrets/upsert")
+def api_secrets_upsert(body: SecretUpsertRequest) -> JSONResponse:
+    """更新或插入一条密钥"""
+    from potato.secret_store import SECRET_KEYS, load_db_secrets
+    from potato.notifications import upsert_bot_secret
+
+    key = body.key.strip().upper()
+    if key not in SECRET_KEYS:
+        raise HTTPException(status_code=400, detail=f"Unknown key: {key}")
+    value = body.value.strip()
+    upsert_bot_secret(key, value)
+    return JSONResponse({"ok": True, "key": key})
+
+
+@app.get("/api/secrets/list")
+def api_secrets_list():
+    """列出所有密钥（值脱敏）"""
+    from potato.secret_store import SECRET_KEYS, load_db_secrets
+    load_db_secrets()
+    import os
+    keys = {}
+    for k in SECRET_KEYS:
+        v = os.environ.get(k, "")
+        if v:
+            keys[k] = v[:4] + "****" + v[-4:] if len(v) > 8 else "****"
+        else:
+            keys[k] = ""
+    return JSONResponse({"ok": True, "keys": keys})
+
+
+# ── 10. /api/credentials/* — 凭证管理 ──
+
+@app.post("/api/credentials/grant")
+def api_credential_grant(body: CredentialGrantRequest) -> JSONResponse:
+    """授权平台凭证"""
+    from potato.credentials import CredentialsPlugin
+    plugin = CredentialsPlugin(load_settings())
+    return JSONResponse(plugin.grant(body.platform_id, body.credentials))
+
+
+@app.post("/api/credentials/revoke")
+def api_credential_revoke(body: CredentialRevokeRequest) -> JSONResponse:
+    """撤销平台凭证"""
+    from potato.credentials import CredentialsPlugin
+    plugin = CredentialsPlugin(load_settings())
+    return JSONResponse(plugin.revoke(body.platform_id))
+
+
+@app.get("/api/credentials/status")
+def api_credential_status() -> JSONResponse:
+    """获取所有平台凭证状态"""
+    from potato.credentials import CredentialsPlugin
+    plugin = CredentialsPlugin(load_settings())
+    return JSONResponse({"ok": True, "platforms": plugin.permission_status()})
+
+
+@app.get("/api/credentials/{platform_id}/schema")
+def api_credential_schema(platform_id: str) -> JSONResponse:
+    """获取指定平台凭证字段定义"""
+    from potato.credentials import CredentialsPlugin
+    schema = CredentialsPlugin.field_schema(platform_id)
+    if not schema:
+        raise HTTPException(status_code=404, detail=f"Unknown platform: {platform_id}")
+    return JSONResponse({"ok": True, "platform_id": platform_id, "fields": schema})
+
+
+@app.get("/api/credentials/schemas")
+def api_credential_schemas() -> JSONResponse:
+    """获取所有平台凭证字段定义"""
+    from potato.credentials import CredentialsPlugin
+    return JSONResponse({"ok": True, "platforms": CredentialsPlugin.all_field_schemas()})
+
+
+# ── 11. /api/stock/* — 股票数据（东方财富） ──
+
+@app.get("/api/stock/quote/{code}")
+def api_stock_quote(code: str) -> JSONResponse:
+    """获取股票实时行情"""
+    return JSONResponse(get_realtime_quote(_validate_stock_code(code)))
+
+
+@app.get("/api/stock/changes")
+def api_stock_changes() -> JSONResponse:
+    """获取涨跌幅排行"""
+    return JSONResponse(get_stock_changes())
+
+
+@app.get("/api/stock/kline/{code}")
+def api_stock_kline(code: str, period: str = "101", start: str = "20250101", end: str = "20251231") -> JSONResponse:
+    """获取K线数据"""
+    return JSONResponse(get_kline_data(_validate_stock_code(code), period, start, end))
+
+
+@app.get("/api/stock/hot_tables")
+def api_stock_hot_tables(market: int = 1) -> JSONResponse:
+    """获取热门板块"""
+    return JSONResponse(get_hot_tables(market))
+
+
+@app.get("/api/stock/chip/{code}")
+def api_stock_chip(code: str) -> JSONResponse:
+    """获取筹码分布"""
+    return JSONResponse(get_chip_distribution(_validate_stock_code(code)))
+
+
+@app.post("/api/stock/sentiment")
+def api_stock_sentiment(body: StockSentimentRequest) -> JSONResponse:
+    """分析文本情绪"""
+    return JSONResponse(analyze_sentiment(body.text))
+
+
+@app.post("/api/stock/sentiment_full")
+def api_stock_sentiment_full(body: StockSentimentRequest) -> JSONResponse:
+    """分析文本情绪（完整包装）"""
+    return JSONResponse({"ok": True, "data": analyze_sentiment(body.text)})
+
+
+# ── 12. /api/iwencai/* — 问财 ──
+
+@app.post("/api/iwencai/query")
+def api_iwencai_query(body: IwencaiQueryRequest) -> JSONResponse:
+    """问财自然语言查询"""
+    client = IwencaiClient()
+    return JSONResponse(client.query(body.question, body.page, body.limit))
+
+
+@app.post("/api/iwencai/search")
+def api_iwencai_search(body: IwencaiSearchRequest) -> JSONResponse:
+    """问财搜索"""
+    client = IwencaiClient()
+    return JSONResponse(client.search(body.keyword, body.channel, body.limit))
+
+
+@app.post("/api/iwencai/select")
+def api_iwencai_select(body: IwencaiSelectRequest) -> JSONResponse:
+    """问财选股"""
+    client = IwencaiClient()
+    return JSONResponse(client.select_stocks(body.query, body.limit))
+
+
+@app.post("/api/iwencai/format")
+def api_iwencai_format(body: IwencaiFormatRequest) -> JSONResponse:
+    """问财查询并格式化为文本"""
+    client = IwencaiClient()
+    result = client.query(body.question)
+    return JSONResponse({"ok": True, "text": format_iwencai_to_text(result)})
+
+
+# ── 13. /api/plugins/* — 插件系统 ──
+
+from potato.plugins import call_plugin, list_plugins as _list_plugins
+
+
+@app.get("/api/plugins")
+def api_plugins_list() -> JSONResponse:
+    """列出所有可用插件"""
+    plugins = _list_plugins()
+    return JSONResponse({
+        "ok": True,
+        "plugins": [
+            {"name": p.name, "display_name": p.display_name, "description": p.description,
+             "version": p.version, "actions": p.actions, "available": p.available}
+            for p in plugins
+        ],
+    })
+
+
+@app.post("/api/plugins/{name}/{action}")
+def api_plugin_call(name: str, action: str, body: dict[str, Any] = None) -> JSONResponse:
+    """调用插件动作"""
+    result = call_plugin(name, action, body or {})
+    if asyncio.isfuture(result) or asyncio.iscoroutine(result):
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                result = {"ok": False, "error": "async not supported in sync endpoint"}
+            else:
+                result = loop.run_until_complete(result)
+        except RuntimeError:
+            result = {"ok": False, "error": "async not supported in sync endpoint"}
+    return JSONResponse(result)
+
+
+@app.post("/api/plugin/analyze")
+def api_plugin_analyze(body: dict[str, Any]) -> JSONResponse:
+    """调用 AIS 分析插件"""
+    result = call_plugin("ais", "analyze", body or {})
+    if asyncio.isfuture(result) or asyncio.iscoroutine(result):
+        result = {"ok": False, "error": "async not supported"}
+    return JSONResponse(result)
+
+
+@app.post("/api/plugin/learn")
+def api_plugin_learn(body: dict[str, Any]) -> JSONResponse:
+    """调用 AIS 学习插件"""
+    result = call_plugin("ais", "learn", body or {})
+    if asyncio.isfuture(result) or asyncio.iscoroutine(result):
+        result = {"ok": False, "error": "async not supported"}
+    return JSONResponse(result)
+
+
+@app.post("/api/plugin/audit")
+def api_plugin_audit(body: dict[str, Any]) -> JSONResponse:
+    """调用 DeepAudit 插件"""
+    result = call_plugin("deepaudit", "audit_snippet", body or {})
+    if asyncio.isfuture(result) or asyncio.iscoroutine(result):
+        result = {"ok": False, "error": "async not supported"}
+    return JSONResponse(result)
+
+
+# ── 14. /api/knowledge — A股专业知识库 ──
+
+@app.get("/api/knowledge/status")
+def api_knowledge_status() -> JSONResponse:
+    """查看知识库加载状态"""
+    from potato.knowledge import get_knowledge_summary
+    return JSONResponse(get_knowledge_summary())
+
+
+@app.get("/api/knowledge/search")
+def api_knowledge_search(q: str = "", category: str = "") -> JSONResponse:
+    """搜索A股专业知识（AI对话时按需调用）"""
+    from potato.memory import MemoryStore
+    from potato.config import load_settings
+    mem = MemoryStore(load_settings())
+    all_facts = mem.get_all_facts()
+    
+    results = []
+    keyword = q.lower()
+    for k, v in all_facts.items():
+        if keyword and keyword not in k.lower() and keyword not in v.lower():
+            continue
+        if category and not k.startswith(category):
+            continue
+        results.append({"key": k, "value": v})
+    
+    return JSONResponse({
+        "total": len(results),
+        "query": q,
+        "category": category or "all",
+        "results": results[:50],
+    })
+
+
+# ── 玻璃悬浮UI补充路由 ──────────────────────────────────────────────
+
+@app.get("/api/stock/hot")
+async def stock_hot():
+    """热门股票"""
+    try:
+        data = get_stock_changes()
+        return JSONResponse({"ok": True, "stocks": data or []})
+    except Exception as e:
+        logger.warning("hot_stock failed: %s", e)
+    return JSONResponse({"ok": False, "stocks": [], "error": "数据源不可用"})
+
+
+@app.get("/api/stock/dragon_tiger")
+async def stock_dragon_tiger():
+    """龙虎榜"""
+    try:
+        data = get_hot_tables(market=1)
+        return JSONResponse({"ok": True, "list": data or []})
+    except Exception as e:
+        logger.warning("dragon_tiger failed: %s", e)
+    return JSONResponse({"ok": False, "list": [], "error": "数据源不可用"})
+
+
+@app.get("/api/stock/sector_flow")
+async def stock_sector_flow():
+    """板块资金流向"""
+    try:
+        em = _em_client()
+        if em:
+            data = await asyncio.to_thread(em.sector_fund_flow)
+            return JSONResponse({"ok": True, "sectors": data or []})
+    except Exception as e:
+        logger.warning("sector_flow failed: %s", e)
+    return JSONResponse({"ok": False, "sectors": [], "error": "数据源不可用"})
+
+
+@app.post("/api/device/action")
+async def device_action(request: Request):
+    """设备操控"""
+    import subprocess, os, platform, base64, io as _io
+    body = await request.json()
+    action = body.get("action", "")
+    result = {"message": f"未知操作: {action}"}
+    
+    try:
+        if action == "open_browser":
+            subprocess.Popen(["cmd", "/c", "start", "", "https://www.eastmoney.com"])
+            result = {"message": "浏览器已打开"}
+        elif action == "open_trader":
+            paths = [r"C:\同花顺\xiadan.exe", r"C:\Program Files\同花顺\xiadan.exe", r"D:\同花顺\xiadan.exe"]
+            found = False
+            for p in paths:
+                if os.path.exists(p):
+                    subprocess.Popen([p])
+                    result = {"message": f"同花顺已启动: {p}"}
+                    found = True; break
+            if not found:
+                result = {"message": "未找到同花顺，请手动启动"}
+        elif action == "screenshot":
+            try:
+                from PIL import ImageGrab
+                img = ImageGrab.grab()
+                buf = _io.BytesIO()
+                img.save(buf, format="JPEG", quality=60)
+                b64 = base64.b64encode(buf.getvalue()).decode()
+                result = {"screenshot": f"data:image/jpeg;base64,{b64}", "message": "截屏成功"}
+            except Exception as e:
+                result = {"message": f"截屏失败: {e}"}
+        elif action == "open_folder":
+            subprocess.Popen(["explorer", os.path.expanduser("~")])
+            result = {"message": "已打开用户文件夹"}
+        elif action == "system_info":
+            try:
+                import psutil
+                mem = psutil.virtual_memory()
+                result = {"message": f"系统: {platform.system()} {platform.release()}\nCPU: {platform.processor()}\n内存: {mem.total//(1024**3)}GB (可用 {mem.available//(1024**3)}GB)"}
+            except ImportError:
+                result = {"message": f"系统: {platform.system()} {platform.release()}\nCPU: {platform.processor()}"}
+        elif action == "task_manager":
+            subprocess.Popen(["taskmgr"])
+            result = {"message": "任务管理器已打开"}
+        elif action == "terminal":
+            subprocess.Popen(["cmd"])
+            result = {"message": "终端已打开"}
+        elif action == "notification":
+            result = {"message": "通知测试 - 来自🌱GBTxiaotudou"}
+            try:
+                from plyer import notification as ntf
+                ntf.notify(title="🌱 GBTxiaotudou", message="桌面通知测试成功!", timeout=5)
+            except: pass
+    except Exception as e:
+        result = {"message": f"操作失败: {e}"}
+    
+    return JSONResponse(result)
+
+
+# ── AI对话API ──
+@app.post("/api/chat")
+async def api_chat(request: Request):
+    """AI对话接口"""
+    try:
+        raw = await request.body()
+        body = json.loads(raw.decode("utf-8", errors="replace"))
+    except Exception:
+        body = {}
+    prompt = body.get("prompt", body.get("message", "")).strip()
+    if not prompt:
+        return JSONResponse({"error": "消息不能为空"}, status_code=400)
+    try:
+        import os
+        from potato.llm import chat, _demo_response
+        # 快速尝试：只用第一个有效key，5秒超时，失败就demo
+        _valid_providers = []
+        for _k in ["DEEPSEEK_API_KEY", "GLM_API_KEY", "SILICON_API_KEY", "OPENAI_API_KEY"]:
+            _v = os.environ.get(_k, "")
+            if _v.startswith(("sk-", "key-")) and len(_v) > 20 and not _v.startswith("sk-xxx"):
+                _valid_providers.append(_k)
+        if not _valid_providers:
+            resp = _demo_response(prompt, "fallback", use_json=True)
+            return JSONResponse({"ok": True, "response": json.dumps(resp, ensure_ascii=False), "demo": True, "provider": "demo"})
+        resp = await asyncio.to_thread(chat, user_prompt=prompt, task="fallback")
+        content = resp.get("content", "") if isinstance(resp, dict) else str(resp)
+        return JSONResponse({"ok": True, "response": content or "（无回复）", "demo": resp.get("demo", False), "provider": resp.get("provider", "unknown")})
+    except Exception as e:
+        logger.warning("chat failed: %s", e)
+    return JSONResponse({"ok": False, "response": "AI暂时不可用，请检查模型密钥设置"})

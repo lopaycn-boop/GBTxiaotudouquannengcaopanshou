@@ -1,7 +1,7 @@
 {
   "name": "potato-desktop-pet",
-  "version": "1.20.4",
-  "description": "小土豆 AI操盘桌宠 — 自主交易+全电脑操控+Live2D",
+  "version": "1.21.0",
+  "description": "小土豆 AI操盘桌宠 — 自动交易+全电脑操控+Live2D",
   "author": "自由的风",
   "main": "main.js",
   "scripts": {
@@ -15,6 +15,8 @@
   "build": {
     "appId": "com.openclaw.potato-pet",
     "productName": "小土豆 AI操盘桌宠",
+    "npmRebuild": true,
+    "asar": false,
     "directories": {
       "output": "dist"
     },
@@ -22,9 +24,6 @@
       "main.js",
       "preload.js",
       "package.json",
-      "../frontend/dist/**/*",
-      "../backend/**/*",
-      "../../potato/**/*",
       "!../**/__pycache__/**",
       "!../../**/__pycache__/**",
       "!../**/node_modules/**",
@@ -34,25 +33,12 @@
       {
         "from": "../frontend/dist",
         "to": "frontend/dist",
-        "filter": [
-          "**/*"
-        ]
+        "filter": ["**/*"]
       },
       {
-        "from": "../backend",
-        "to": "backend",
-        "filter": [
-          "**/*",
-          "!__pycache__/**"
-        ]
-      },
-      {
-        "from": "../../potato",
-        "to": "potato",
-        "filter": [
-          "**/*",
-          "!__pycache__/**"
-        ]
+        "from": "../../dist/potato-backend",
+        "to": "potato-backend",
+        "filter": ["**/*"]
       },
       {
         "from": "../../data",
@@ -70,10 +56,12 @@
     "win": {
       "target": [
         {
+          "target": "portable",
+          "arch": ["x64"]
+        },
+        {
           "target": "nsis",
-          "arch": [
-            "x64"
-          ]
+          "arch": ["x64"]
         }
       ],
       "icon": "assets/icon.ico"
@@ -84,20 +72,19 @@
       "allowElevation": true,
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false,
-      "installerLanguages": [
-        "zh-CN"
-      ],
+      "installerLanguages": ["zh-CN"],
       "language": 2052,
       "installerIcon": "assets/icon.ico",
       "unicode": true
+    },
+    "portable": {
+      "artifactName": "小土豆AI操盘桌宠-${version}-Portable.exe"
     },
     "mac": {
       "target": [
         {
           "target": "zip",
-          "arch": [
-            "x64"
-          ]
+          "arch": ["x64"]
         }
       ],
       "icon": "assets/icon.png",
@@ -107,9 +94,7 @@
       "target": [
         {
           "target": "tar.gz",
-          "arch": [
-            "x64"
-          ]
+          "arch": ["x64"]
         }
       ],
       "icon": "assets/icon.png",
@@ -127,6 +112,7 @@
     "electron-builder": "^24.9.1"
   },
   "dependencies": {
+    "app-builder-bin": "^4.2.0",
     "electron-updater": "^6.8.3",
     "robotjs": "^0.7.1",
     "screenshot-desktop": "^1.15.4"

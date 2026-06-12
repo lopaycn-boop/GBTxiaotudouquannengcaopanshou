@@ -17,9 +17,14 @@ env/
 # === Node / Electron ===
 node_modules/
 desktop_pet/frontend/dist/
+desktop_pet/frontend/dist2/
 desktop_pet/frontend/release/
+desktop_pet/frontend/release2/
+desktop_pet/frontend/release3/
 desktop_pet/frontend/python/
 desktop_pet/frontend/resources/python/
+desktop_pet/electron/dist/
+desktop_pet/electron/release/
 
 # === Environment & Secrets ===
 .env
@@ -76,3 +81,9 @@ dist_obfuscated/
 
 # === Browser profiles (contains login sessions) ===
 browser_profiles/
+
+.hermes/
+ai_trading_system/
+release4/
+glass_app/
+desktop_pet/electron/Lib/

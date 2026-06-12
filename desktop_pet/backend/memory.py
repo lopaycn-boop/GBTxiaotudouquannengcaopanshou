@@ -181,11 +181,36 @@ class MemorySystem:
                 logger.debug("DB fact sync failed: %s", e)
 
     def get_fact_context(self):
-        if not self.facts:
+        # 合并 user_facts.json 和数据库 memory_facts 表（知识库存在数据库里）
+        all_facts = dict(self.facts)  # 先复制json中的facts
+        try:
+            db = self._get_db_memory()
+            if db:
+                db_facts = db.get_all_facts()
+                if db_facts:
+                    for k, v in db_facts.items():
+                        if k not in all_facts:  # json优先，数据库补充
+                            cat = _categorize_fact(k, str(v))
+                            all_facts[k] = {"value": str(v), "category": cat, "source": "knowledge_base"}
+        except Exception as e:
+            logger.debug("DB facts merge failed: %s", e)
+
+        if not all_facts:
             return "（暂无已知信息）"
 
+        # 分层策略：知识库facts只给分类概览(省token)，用户交互facts给完整内容
+        knowledge_keys = set()
+        user_keys = set()
+        for k, v in all_facts.items():
+            if isinstance(v, dict) and v.get("source") == "knowledge_base":
+                knowledge_keys.add(k)
+            else:
+                user_keys.add(k)
+
         by_category = {}
-        for k, v in self.facts.items():
+        # 用户交互facts：完整内容
+        for k in user_keys:
+            v = all_facts[k]
             if isinstance(v, dict):
                 cat = v.get("category", "other")
                 val = v.get("value", "")
@@ -196,6 +221,17 @@ class MemorySystem:
                 by_category[cat] = []
             by_category[cat].append(f"{k}: {val}")
 
+        # 知识库facts：分类概览
+        knowledge_brief = {}
+        for k in knowledge_keys:
+            v = all_facts[k]
+            val = v.get("value", "") if isinstance(v, dict) else str(v)
+            prefix = k.split("_")[0] if "_" in k else "other"
+            if prefix not in knowledge_brief:
+                knowledge_brief[prefix] = []
+            # 只取前60字作为概览
+            knowledge_brief[prefix].append(f"{k}: {val[:60]}...")
+
         lines = []
         cat_order = ["identity", "preference", "trading", "personal", "bytebot", "system", "other"]
         for cat in cat_order:
@@ -205,8 +241,17 @@ class MemorySystem:
                 for item in by_category[cat]:
                     lines.append(f"  {item}")
 
-        return "\n".join(lines) if lines else "（暂无已知信息）"
+        # 知识库概览
+        if knowledge_brief:
+            lines.append("【A股专业知识库（已下载，可随时调用详细内容）】")
+            for prefix, items in knowledge_brief.items():
+                lines.append(f"  [{prefix}] {len(items)}条专业知识点")
+                for item in items[:5]:  # 每类最多5条概览
+                    lines.append(f"    {item}")
+                if len(items) > 5:
+                    lines.append(f"    ...另有{len(items)-5}条")
 
+        return "\n".join(lines) if lines else "（暂无已知信息）"
     def get_all_facts(self):
         result = {}
         for k, v in self.facts.items():

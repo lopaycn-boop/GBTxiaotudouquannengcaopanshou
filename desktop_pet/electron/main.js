@@ -26,7 +26,7 @@ let isQuitting = false;
 let crashRestartCount = 0;
 const MAX_CRASH_RESTARTS = 3;
 
-let BACKEND_PORT = parseInt(process.env.PET_BACKEND_PORT || '8000', 10);
+let BACKEND_PORT = parseInt(process.env.PET_BACKEND_PORT || '8003', 10);
 const FRONTEND_PORT = 5173;
 const APP_NAME = '小土豆 AI操盘桌宠';
 
@@ -306,6 +306,41 @@ function _spawnAgent() {
 }
 
 function _spawnBackend() {
+  const env = { ...process.env };
+  env.PORT = String(BACKEND_PORT);
+  const isWin = process.platform === 'win32';
+
+  // ── Priority 1: Built-in PyInstaller exe (no Python needed on user machine) ──
+  const bundledExe = isWin
+    ? path.join(process.resourcesPath || '', 'potato-backend', 'potato-backend.exe')
+    : path.join(process.resourcesPath || '', 'potato-backend', 'potato-backend');
+
+  if (fs.existsSync(bundledExe)) {
+    console.log(`[electron] Using bundled backend exe: ${bundledExe}`);
+    const spawnOpts = { cwd: path.dirname(bundledExe), env, stdio: ['ignore', 'pipe', 'pipe'] };
+    if (isWin) spawnOpts.shell = true;
+    backendProc = spawn(bundledExe, [], spawnOpts);
+
+    backendProc.stdout.on('data', (data) => {
+      console.log(`[backend] ${data.toString().trim()}`);
+    });
+    backendProc.stderr.on('data', (data) => {
+      console.error(`[backend] ${data.toString().trim()}`);
+    });
+    backendProc.on('close', (code) => {
+      if (!isQuitting) {
+        console.log(`Backend exited with code ${code}, restarting in 3s...`);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('system-event', { type: 'backend_crash', code });
+        }
+        setTimeout(() => _spawnBackend(), 3000);
+      }
+    });
+    return;
+  }
+
+  // ── Priority 2: System Python (dev mode / fallback) ──
+  console.log('[electron] Bundled exe not found, falling back to system Python');
   const python = findPython();
   const backendDir = path.join(process.resourcesPath || path.join(__dirname, '..'), 'backend');
   const mainPy = path.join(backendDir, 'main.py');
@@ -322,9 +357,6 @@ function _spawnBackend() {
     }
   }
 
-const env = { ...process.env };
-  env.PORT = String(BACKEND_PORT);
-
   const resRoot = process.resourcesPath || path.join(__dirname, '..');
   const pthEntries = [
     resRoot,
@@ -340,7 +372,6 @@ const env = { ...process.env };
     console.error('[electron] Failed to write potato .pth:', e.message);
   }
 
-  const isWin = process.platform === 'win32';
   const siteDir = isWin
     ? path.join(path.dirname(python), 'Lib', 'site-packages')
     : path.join(path.dirname(python), '..', 'lib', `python3.${process.arch === 'arm64' ? '12' : '12'}`, 'site-packages');
